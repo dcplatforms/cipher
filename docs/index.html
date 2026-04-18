@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Directory — CIPHER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/cipher.css">
+</head>
+<body>
+<nav>
+  <a class="nav-logo" href="index.html">CIPHER</a>
+  <a href="index.html">Agents</a>
+  <a href="https://github.com/dcplatforms/cipher" target="_blank">GitHub</a>
+  <a href="https://github.com/dcplatforms/cipher/blob/main/docs/ARCHITECTURE.md" target="_blank">Architecture</a>
+  <span class="nav-badge">NICE 2.1 · v0.1-pre</span>
+</nav>
+<div class="hero">
+  <div class="hero-tag">⬡ NICE Framework v2.1 · Open Source</div>
+  <h1><span>CIPHER</span> Agent Directory</h1>
+  <p class="hero-sub">Cybersecurity Intelligence Personas for Human-in-the-loop Enterprise Response — 40 agent personas across 5 NICE categories</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><span class="hero-stat-value">40</span><span class="hero-stat-label">Agent Personas</span></div>
+    <div class="hero-stat"><span class="hero-stat-value">5</span><span class="hero-stat-label">NICE Categories</span></div>
+    <div class="hero-stat"><span class="hero-stat-value">3</span><span class="hero-stat-label">Autonomy Tiers</span></div>
+    <div class="hero-stat"><span class="hero-stat-value">0</span><span class="hero-stat-label">Actions Taken</span></div>
+  </div>
+</div>
+<div class="container">
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Agent Personas</div>
+    </div>
+    <div class="filter-bar"><button class="filter-btn active" data-cat="ALL" onclick="filterAgents(this,'ALL')">All Agents</button>
+<button class="filter-btn" data-cat="PD" onclick="filterAgents(this,'PD')">PD — Protection & Defense (7)</button>
+<button class="filter-btn" data-cat="IN" onclick="filterAgents(this,'IN')">IN — Investigation (2)</button>
+<button class="filter-btn" data-cat="IO" onclick="filterAgents(this,'IO')">IO — Implementation & Operation (7)</button>
+<button class="filter-btn" data-cat="DD" onclick="filterAgents(this,'DD')">DD — Design & Development (9)</button>
+<button class="filter-btn" data-cat="OG" onclick="filterAgents(this,'OG')">OG — Oversight & Governance (15)</button>
+</div>
+    <div class="agent-grid" id="agentGrid"><a class="agent-card" data-cat="PD" href="agents/pd-defensive.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-001</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Defensive Cybersecurity</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Monitors, analyzes, and triages security events from SIEM and EDR. First responder to alerts — enriches, deduplicates, classifies severity, and escalates confirmed incidents.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-ir.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-002</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Incident Response</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Manages the full incident response lifecycle: detection, analysis, containment, eradication, recovery, and post-incident review. Coordinates agents and escalates to human operators.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-forensics.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-003</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Digital Forensics</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Collects, preserves, and analyzes digital evidence in support of incident response and investigations. Maintains strict chain of custody and produces forensic reports.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-infra.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-004</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Infrastructure Support</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Monitors and supports cybersecurity infrastructure components — firewalls, IDS/IPS, proxies, and security tooling. Identifies misconfigurations and degraded security controls.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-insider.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-005</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Insider Threat Analysis</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Analyzes behavioral and technical indicators to detect and assess insider threats. Integrates UEBA data, access logs, and HR signals while maintaining privacy and legal boundaries.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-threat.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-006</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Threat Analysis</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Produces finished threat intelligence by analyzing adversary TTPs, campaigns, and indicators. Enriches IOCs, tracks threat actors, and maintains the organization's threat picture.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="PD" href="agents/pd-vuln.html" data-cat="PD">
+  <div class="agent-card-header">
+    <span class="agent-id">PD-WRL-007</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Vulnerability Analysis</div>
+  <div class="agent-category">Protection & Defense</div>
+  <div class="agent-desc">Identifies, assesses, and prioritizes vulnerabilities in organizational systems. Correlates CVEs with asset inventory, provides risk-scored remediation recommendations.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IN" href="agents/in-cybercrime.html" data-cat="IN">
+  <div class="agent-card-header">
+    <span class="agent-id">IN-WRL-001</span>
+    <span class="agent-tier tier-T1">T1 · Human-Administered</span>
+  </div>
+  <div class="agent-name">Cybercrime Investigation</div>
+  <div class="agent-category">Investigation</div>
+  <div class="agent-desc">Supports cybercrime investigations by gathering and analyzing digital evidence. Operates exclusively in advisory mode — all investigative actions executed by human investigators.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IN" href="agents/in-evidence.html" data-cat="IN">
+  <div class="agent-card-header">
+    <span class="agent-id">IN-WRL-002</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Digital Evidence Analysis</div>
+  <div class="agent-category">Investigation</div>
+  <div class="agent-desc">Conducts detailed analysis of digital evidence to support investigations. Applies forensic techniques to extract, examine, and interpret digital artifacts.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-data.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-001</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Data Analysis</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Analyzes large datasets to identify patterns, anomalies, and security-relevant insights. Supports threat hunting and operational analytics across log and telemetry sources.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-dba.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-002</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Database Administration</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Administers and secures organizational databases, ensuring data integrity, access control, and monitoring for unauthorized access or exfiltration.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-km.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-003</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Knowledge Management</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Manages the organization's cybersecurity knowledge base — maintaining playbooks, lessons learned, policy documents, and threat intelligence in accessible, structured form.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-netops.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-004</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Network Operations</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Monitors and supports secure operation of organizational networks. Identifies network anomalies, misconfigurations, and unauthorized devices or traffic patterns.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-sysadmin.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-005</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Systems Administration</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Administers and secures operating systems and endpoints. Monitors for configuration drift, unauthorized changes, and compliance with security baselines.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-security-analysis.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-006</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Systems Security Analysis</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Analyzes system security posture, validates security controls, and identifies gaps between policy requirements and operational reality.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="IO" href="agents/io-support.html" data-cat="IO">
+  <div class="agent-card-header">
+    <span class="agent-id">IO-WRL-007</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Technical Support</div>
+  <div class="agent-category">Implementation & Operation</div>
+  <div class="agent-desc">Provides technical support for cybersecurity tools and processes. Triages security tool issues, maintains operational tooling, and supports end-user security queries.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-arch.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-001</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Cybersecurity Architecture</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Designs and evaluates cybersecurity architectures for systems and networks. Assesses proposed designs against security requirements and organizational risk tolerance.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-enterprise-arch.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-002</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Enterprise Architecture</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Integrates cybersecurity requirements into enterprise IT architecture. Ensures security is embedded in enterprise technology planning and system acquisitions.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-ot.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-003</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">OT Cybersecurity Engineering</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Applies cybersecurity engineering principles to operational technology (OT), ICS, and SCADA systems. Bridges IT security practices with OT operational constraints.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-secure-dev.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-004</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Secure Software Development</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Develops and reviews software with security embedded throughout the SDLC. Identifies and remediates security vulnerabilities in source code and dependencies.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-secure-sys.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-005</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Secure Systems Development</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Ensures security requirements are defined and verified throughout the systems development lifecycle for hardware, software, and integrated systems.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-software-sec.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-006</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Software Security Assessment</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Evaluates software products and applications for security vulnerabilities through structured assessment methodologies including penetration testing and code analysis.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-sysreq.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-007</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Systems Requirements Planning</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Translates organizational security objectives into actionable system security requirements. Ensures security requirements are complete, testable, and traceable.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-testing.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-008</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Systems Testing and Evaluation</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Plans and executes security testing of systems to validate that security controls function as intended and meet specified requirements.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="DD" href="agents/dd-research.html" data-cat="DD">
+  <div class="agent-card-header">
+    <span class="agent-id">DD-WRL-009</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Technology Research and Development</div>
+  <div class="agent-category">Design & Development</div>
+  <div class="agent-desc">Researches emerging technologies, attack techniques, and defensive capabilities. Produces research findings that inform strategic security decisions and tool selection.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-commsec.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-001</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Communications Security Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Oversees communications security policies and programs. Ensures secure communications channels are available, properly configured, and protected from interception.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-policy.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-002</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Cybersecurity Policy and Planning</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Develops, reviews, and assesses cybersecurity policies, plans, and procedures. Ensures policies are current, aligned with standards, and enforced across the organization.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-workforce.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-003</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Cybersecurity Workforce Management & Training</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages cybersecurity workforce development programs. Identifies skill gaps, tracks certifications, and ensures training program alignment with operational needs.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-curriculum.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-004</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Cybersecurity Curriculum Development & Instruction</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Develops and delivers cybersecurity training content. Creates instructional materials aligned with NICE framework competencies and organizational security needs.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-legal.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-005</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Cybersecurity Legal Advice</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Provides legal analysis and guidance on cybersecurity-related matters. Advises on regulatory compliance, incident disclosure obligations, and legal aspects of incident response.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-exec.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-006</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Executive Cybersecurity Leadership</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Provides strategic cybersecurity leadership and oversight. Synthesizes security program performance for executive decision-making and board-level reporting.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-privacy.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-007</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Privacy Compliance</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Oversees organizational compliance with privacy regulations. Assesses data handling practices, identifies privacy risks, and advises on privacy-preserving security controls.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-product-support.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-008</span>
+    <span class="agent-tier tier-T3">T3 · Autonomous</span>
+  </div>
+  <div class="agent-name">Product Support Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages lifecycle and security of cybersecurity products and tools deployed in the organization. Tracks versions, licenses, EOL status, and vulnerability patches.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-program-mgmt.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-009</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Program Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages cybersecurity programs — tracking milestones, resources, risks, and outcomes across multi-initiative security programs.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-project-mgmt.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-010</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Secure Project Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages cybersecurity projects with security embedded throughout the project lifecycle. Tracks security deliverables, risks, and outcomes.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-assessment.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-011</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Security Control Assessment</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Independently assesses the implementation and effectiveness of security controls. Produces findings for risk management and authorization decisions.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-authorization.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-012</span>
+    <span class="agent-tier tier-T1">T1 · Human-Administered</span>
+  </div>
+  <div class="agent-name">Systems Authorization</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Supports Authorizing Officials with the information needed to make risk-based authorization decisions. Prepares authorization packages and monitors system security posture continuously.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-security-mgmt.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-013</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Systems Security Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages the overall cybersecurity posture of organizational systems. Oversees security monitoring, incident response, and security control maintenance.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-portfolio.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-014</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Technology Portfolio Management</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Manages the cybersecurity technology portfolio — tracking investments, rationalization, and alignment of security tools with organizational needs.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+<a class="agent-card" data-cat="OG" href="agents/og-audit.html" data-cat="OG">
+  <div class="agent-card-header">
+    <span class="agent-id">OG-WRL-015</span>
+    <span class="agent-tier tier-T2">T2 · Copiloted</span>
+  </div>
+  <div class="agent-name">Technology Program Auditing</div>
+  <div class="agent-category">Oversight & Governance</div>
+  <div class="agent-desc">Independently audits cybersecurity programs and controls for compliance with policies, standards, and regulatory requirements. Produces objective audit findings.</div>
+  <div class="agent-stats-row">
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Actions</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0</span><span class="agent-stat-lbl">Tasks</span></div>
+    <div class="agent-stat-item"><span class="agent-stat-num">0/0</span><span class="agent-stat-lbl">Completed</span></div>
+  </div>
+</a>
+</div>
+  </div>
+</div>
+<footer>
+  <p>CIPHER — Open-source NICE 2.0-aligned multi-agent cybersecurity framework &nbsp;·&nbsp;
+  <a href="https://github.com/dcplatforms/cipher" target="_blank">GitHub</a> &nbsp;·&nbsp;
+  MIT License &nbsp;·&nbsp; 2026</p>
+</footer>
+<script>
+function filterAgents(btn, cat) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.agent-card').forEach(card => {
+    card.style.display = (cat === 'ALL' || card.dataset.cat === cat) ? 'block' : 'none';
+  });
+}
+</script>
+</body></html>
