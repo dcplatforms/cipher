@@ -1,0 +1,110 @@
+# CIPHER Agent Persona Spec — Defensive Cybersecurity
+# NICE Work Role: Defensive Cybersecurity (PD-WRL-001)
+# Category: Protection & Defense
+
+id: pd-defensive
+nice_role: Defensive Cybersecurity
+nice_category: Protection & Defense
+nice_category_code: PD
+cipher_agent_name: agent-pd-defensive
+autonomy_default: T3  # Most defensive monitoring is autonomous
+
+description: |
+  Monitors, analyzes, and responds to cybersecurity events using defensive tools and techniques.
+  Primary alert triage agent — first responder to SIEM alerts, EDR detections, and anomalous
+  network activity. Enriches alerts, deduplicates noise, classifies severity, and escalates
+  confirmed incidents to agent-pd-ir.
+
+authorized_tools:
+  T3_autonomous:
+    - siem_query
+    - siem_alert_acknowledge  # Mark alert as reviewed
+    - edr_query
+    - firewall_query           # Read-only firewall log query
+    - threat_intel_lookup
+    - asset_db_query
+    - network_log_query
+    - ticket_create
+    - alert_deduplicate        # Merge duplicate alerts
+    - alert_classify           # Assign severity P1–P4
+    - report_generate
+
+  T2_requires_approval:
+    - ioc_block_recommend
+    - alert_escalate_to_ir     # Escalate to pd-ir agent (T2 — creates formal incident)
+
+  T1_advisory_only:
+    - network_quarantine
+    - endpoint_isolation
+
+forbidden_tools:
+  - any_direct_system_change
+  - memory_write_to_other_agent_namespace
+
+memory:
+  working:
+    ttl_seconds: 3600
+    max_tokens: 16000
+  episodic:
+    write: true
+    read_own: true
+    read_cross_role:
+      - pd-ir
+      - pd-threat
+  semantic:
+    read_collections:
+      - threat_intel
+      - mitre_attack
+      - org_assets
+      - prior_incidents
+    write_collections: []     # Defensive agent does not write semantic memory
+    min_source_trust_score: 0.75
+  procedural:
+    read_playbooks:
+      - alert_triage_sop
+      - severity_classification_matrix
+      - escalation_thresholds
+
+behavioral_baselines:
+  max_siem_queries_per_minute: 100
+  max_edr_queries_per_minute: 100
+  max_alerts_processed_per_hour: 2000
+  max_tickets_created_per_hour: 50
+  alert_on_t1_tool_invocation_attempt: true
+  suspend_on_forbidden_tool_attempt: true
+
+llm:
+  provider: litellm
+  preferred_model: gpt-4o-mini    # High-volume, cost-efficient for triage
+  fallback_model: claude-3-haiku
+  temperature: 0.0
+  max_tokens: 2048
+  structured_output: true
+
+output_schema:
+  required_fields:
+    - alert_id
+    - severity
+    - classification        # true_positive | false_positive | needs_investigation
+    - confidence_score
+    - enrichment_data       # threat intel, asset context
+    - proposed_actions
+    - escalate_to_ir        # bool
+    - escalation_reason
+
+inter_agent:
+  can_task:
+    - pd-threat             # Request threat intel analysis
+  receives_tasks_from:
+    - orchestrator
+  escalates_to:
+    - pd-ir                 # On confirmed incident
+
+identity:
+  spiffe_id_template: "spiffe://cipher.{tenant_id}/ns/cipher/sa/pd-defensive/{instance_id}"
+  svid_ttl_seconds: 3600
+
+jules_tasks:
+  - issue: "#003"
+    title: "Implement agent-pd-defensive (reference implementation)"
+    note: "This is the FIRST agent to implement. All other agents follow this pattern."

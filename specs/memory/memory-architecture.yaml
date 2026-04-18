@@ -1,0 +1,206 @@
+# CIPHER Memory Architecture Spec
+# Plane: Memory
+# Covers all 5 memory types across all agents
+
+id: memory-architecture
+version: "0.1"
+
+# ──────────────────────────────────────────────────────────
+# MEMORY PLANES
+# ──────────────────────────────────────────────────────────
+
+planes:
+
+  working_memory:
+    technology: Redis 7.x
+    purpose: Active task context, current session state
+    persistence: No (volatile, TTL-scoped)
+    namespace_pattern: "cipher:{tenant_id}:agent:{agent_id}:session:{session_id}:*"
+    ttl_default_seconds: 3600
+    max_size_per_session_mb: 10
+    security:
+      namespace_isolation: strict  # Agent can only access own namespace key prefix
+      encryption_at_rest: false    # Redis in-cluster, network-level protection sufficient
+      encryption_in_transit: TLS
+    access_pattern: MemoryManager.working  # Never access Redis directly
+
+  episodic_memory:
+    technology: TimescaleDB (PostgreSQL extension)
+    purpose: Immutable record of every agent action, observation, decision
+    persistence: Permanent (WORM — no UPDATE or DELETE ever)
+    schema:
+      table: cipher_episodic_events
+      columns:
+        - id: uuid PRIMARY KEY
+        - tenant_id: text NOT NULL
+        - agent_id: text NOT NULL
+        - agent_role: text NOT NULL
+        - session_id: text NOT NULL
+        - timestamp: timestamptz NOT NULL
+        - event_type: text NOT NULL  # action | observation | decision | error | tool_call
+        - payload: jsonb NOT NULL
+        - confidence_score: float
+        - autonomy_tier: text        # T1 | T2 | T3
+        - human_approval_id: uuid    # null if T3; set if T2 action was approved
+        - incident_id: text
+        - prev_row_hash: text NOT NULL  # SHA-256 of previous row for hash chain
+        - row_hash: text NOT NULL       # SHA-256 of this row's content
+    hash_chain:
+      algorithm: SHA-256
+      includes: [id, agent_id, timestamp, event_type, payload, prev_row_hash]
+      verification_api: true  # Expose API endpoint to verify chain integrity
+    retention: permanent      # Compliance requirement — never purge
+    access_pattern:
+      write: MemoryManager.episodic.write (enforced, no direct SQL INSERT)
+      read: MemoryManager.episodic.query (RBAC enforced via OPA)
+
+  semantic_memory:
+    technology: ChromaDB (development) → Weaviate (production scale)
+    purpose: Threat intel, vulnerability data, MITRE ATT&CK, org policies, prior incident embeddings
+    persistence: Persistent, but entries have TTL (configurable per source)
+    namespace_pattern:
+      collection_format: "cipher_{tenant_id}_{collection_name}"
+    collections:
+      threat_intel:
+        description: IOCs, TTPs, threat actor profiles
+        read_roles: [pd-*, an-*, in-*]
+        write_roles: [threat_intel_ingestion_service]
+        ttl_days: 90
+        min_trust_score: 0.60
+
+      incident_history:
+        description: Embeddings of completed incident reports
+        read_roles: [pd-*, og-security-mgmt]
+        write_roles: [pd-ir]  # IR agent writes post-incident summaries
+        ttl_days: 365
+
+      mitre_attack:
+        description: MITRE ATT&CK framework techniques and mitigations
+        read_roles: [all]
+        write_roles: [data_ingestion_service]  # Updated from MITRE, not by agents
+        ttl_days: null  # No TTL — framework data
+
+      org_assets:
+        description: Organization asset inventory, system classifications
+        read_roles: [all]
+        write_roles: [io-sysadmin, io-netops]
+        ttl_days: null
+
+      playbooks:
+        description: IR playbooks, SOPs, runbooks (embedded for semantic search)
+        read_roles: [all]
+        write_roles: [human_operators_only]
+        ttl_days: null
+
+      cve_database:
+        description: CVE/NVD vulnerability data
+        read_roles: [pd-vuln, pd-ir, dd-*, io-security-analysis]
+        write_roles: [vuln_data_ingestion_service]
+        ttl_days: null  # Versioned, not TTL-based
+
+    provenance_metadata_required:
+      - source_type         # threat_intel_feed | siem_log | agent_analysis | human_input
+      - source_id           # e.g., misp-feed-01
+      - source_trust_score  # 0.0–1.0
+      - ingested_by_agent   # agent_id
+      - ingested_at         # ISO8601
+      - content_hash        # SHA-256 of content at write time
+      - ttl_days            # null = no expiry
+
+    security:
+      rbac_enforced_by: OPA
+      trust_score_quarantine_threshold: 0.40  # Below this → quarantine, don't use
+      periodic_audit:
+        frequency_days: 7
+        checks:
+          - content_hash_verification
+          - trust_score_drift_detection
+          - anomalous_entry_detection
+
+  procedural_memory:
+    technology: File store (YAML/JSON) + Git version control
+    purpose: SOPs, playbooks, decision trees, escalation matrices
+    persistence: Permanent, versioned
+    storage_path: /data/playbooks/{tenant_id}/{role_id}/
+    format: YAML with JSON Schema validation
+    security:
+      agents_access: read_only       # Agents can never modify playbooks
+      human_operators: read_write    # Only authorized operators can modify
+      signing: GPG                   # All playbook files GPG-signed
+      tamper_detection: git_commit_hash + GPG verification on every load
+    versioning: Git (full history, no force push)
+
+  audit_ledger:
+    technology: TimescaleDB (separate table from episodic)
+    purpose: Immutable record of ALL security-relevant decisions
+    persistence: Permanent (WORM)
+    schema:
+      table: cipher_audit_ledger
+      columns:
+        - id: uuid PRIMARY KEY
+        - tenant_id: text NOT NULL
+        - timestamp: timestamptz NOT NULL
+        - event_category: text  # policy_decision | memory_write | tool_invocation | human_approval | anomaly_detection
+        - actor_spiffe_id: text NOT NULL
+        - action: text NOT NULL
+        - resource: text
+        - decision: text     # allow | deny | escalate | suspend
+        - decision_reason: text
+        - metadata: jsonb
+        - otel_trace_id: text
+        - prev_row_hash: text NOT NULL
+        - row_hash: text NOT NULL
+    export_format: OCSF  # Open Cybersecurity Schema Framework — SIEM-compatible
+    access:
+      read: [og-* agents, human operators with audit role]
+      write: [all agents — append-only, via AuditLedger.write() only]
+
+# ──────────────────────────────────────────────────────────
+# MEMORY MANAGER (unified interface)
+# ──────────────────────────────────────────────────────────
+
+memory_manager:
+  class: MemoryManager
+  location: src/memory/manager.py
+  description: |
+    Single interface for all memory operations. Enforces:
+    - Namespace isolation (agents can only access authorized scopes)
+    - Provenance metadata on all semantic writes
+    - OPA policy check before every cross-namespace read
+    - Automatic provenance record creation
+    - OpenTelemetry span emission for every operation
+
+  interface:
+    working:
+      - get(key: str) -> Optional[Any]
+      - set(key: str, value: Any, ttl: int = None) -> None
+      - delete(key: str) -> None
+
+    episodic:
+      - write(event_type: str, payload: dict, confidence: float, ...) -> str  # returns event_id
+      - query(filters: EpisodicFilters, limit: int) -> List[EpisodicEvent]
+      - verify_chain_integrity() -> bool
+
+    semantic:
+      - query(collection: str, query: str, k: int) -> List[SemanticResult]
+      - write(collection: str, content: str, provenance: Provenance) -> str
+      - delete(collection: str, content_id: str) -> None  # Raises if below trust threshold
+
+    procedural:
+      - get_playbook(role: str, playbook_name: str) -> Playbook
+      - list_playbooks(role: str) -> List[str]
+
+    audit:
+      - write(event_category: str, action: str, decision: str, reason: str, ...) -> None
+
+jules_tasks:
+  - issue: "#007"
+    title: "Implement episodic memory (TimescaleDB + hash chain)"
+  - issue: "#008"
+    title: "Implement semantic memory (ChromaDB + provenance)"
+  - issue: "#010"
+    title: "Implement working memory (Redis namespace manager)"
+  - issue: "#general"
+    title: "Implement MemoryManager unified interface"
+    priority: high
+    note: "Implement MemoryManager BEFORE any agent implementations"

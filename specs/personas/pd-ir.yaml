@@ -1,0 +1,173 @@
+# CIPHER Agent Persona Spec — Incident Response
+# NICE Work Role: Incident Response (PD-WRL-002)
+# Category: Protection & Defense
+
+id: pd-ir
+nice_role: Incident Response
+nice_category: Protection & Defense
+nice_category_code: PD
+cipher_agent_name: agent-pd-ir
+autonomy_default: T2  # Copiloted — most IR actions require human approval
+
+description: |
+  Responds to cybersecurity incidents by executing a defined incident response lifecycle:
+  detection, analysis, containment, eradication, recovery, and post-incident review.
+  Coordinates with other agents (pd-defensive, pd-threat, pd-forensics) and escalates
+  to human operators for containment and eradication execution.
+
+# ──────────────────────────────────────────────────────────
+# AUTHORIZED CAPABILITIES
+# ──────────────────────────────────────────────────────────
+authorized_tools:
+  T3_autonomous:
+    - siem_query              # Query SIEM for related events
+    - edr_query               # Query EDR telemetry
+    - threat_intel_lookup     # IOC enrichment
+    - asset_db_query          # Look up affected assets
+    - ticket_create           # Open incident ticket
+    - ticket_update           # Update incident ticket
+    - notify_team             # Send notification to security team channel
+    - playbook_lookup         # Retrieve relevant playbook
+    - report_generate         # Generate incident summary report
+
+  T2_requires_approval:
+    - ioc_block_recommend     # Recommend IP/domain/hash block (human approves execution)
+    - endpoint_isolate_recommend  # Recommend endpoint isolation (human approves)
+    - patch_recommend         # Recommend emergency patch application
+    - account_disable_recommend   # Recommend disabling compromised account
+    - evidence_collect_request    # Request evidence collection from pd-forensics
+    - incident_escalate       # Escalate to senior analyst / CIRT
+
+  T1_advisory_only:
+    # These tools DO NOT EXIST in this agent's tool set.
+    # The agent can RECOMMEND these actions in its output,
+    # but cannot invoke them under any circumstances.
+    - network_quarantine        # Human executes
+    - legal_hold_initiate       # Human + Legal executes
+    - external_agency_notify    # CISO + Legal executes
+    - public_disclosure         # Executive team executes
+
+forbidden_tools:
+  - any_tool_not_in_authorized_list
+  - direct_firewall_change
+  - direct_ad_modification
+  - memory_write_to_other_agent_namespace
+
+# ──────────────────────────────────────────────────────────
+# MEMORY CONFIGURATION
+# ──────────────────────────────────────────────────────────
+memory:
+  working:
+    ttl_seconds: 7200       # 2-hour incident session
+    max_tokens: 32000
+
+  episodic:
+    write: true             # Logs all IR actions
+    read_own: true
+    read_cross_role:
+      - pd-defensive        # Can read defensive agent's prior observations
+      - pd-threat           # Can read threat analysis findings
+      - og-security-control # Governance can audit IR actions
+
+  semantic:
+    read_collections:
+      - threat_intel        # Read threat feeds
+      - incident_history    # Read prior incident patterns
+      - mitre_attack        # Read ATT&CK framework
+      - org_assets          # Read asset inventory
+      - playbooks           # Read IR playbooks
+    write_collections:
+      - incident_history    # Write completed incident data for future learning
+    write_requires_provenance: true
+    min_source_trust_score: 0.70
+
+  procedural:
+    read_playbooks:
+      - incident_response_lifecycle
+      - containment_procedures
+      - escalation_matrix
+      - evidence_handling
+    write_playbooks: false  # Only human operators can modify playbooks
+
+# ──────────────────────────────────────────────────────────
+# BEHAVIORAL BASELINES (for Behavioral Monitor)
+# ──────────────────────────────────────────────────────────
+behavioral_baselines:
+  max_siem_queries_per_hour: 200
+  max_edr_queries_per_hour: 200
+  max_tickets_per_hour: 20
+  max_t2_approvals_pending_simultaneously: 5
+  alert_on_consecutive_failed_queries: 10
+  alert_on_t1_tool_invocation_attempt: true
+  alert_on_cross_namespace_memory_access: true
+  suspend_on_forbidden_tool_attempt: true
+
+# ──────────────────────────────────────────────────────────
+# LLM CONFIGURATION
+# ──────────────────────────────────────────────────────────
+llm:
+  provider: litellm         # Model-agnostic via LiteLLM
+  preferred_model: claude-3-5-sonnet  # Best reasoning for IR decision-making
+  fallback_model: gpt-4o
+  temperature: 0.1          # Low temp: deterministic IR decisions
+  max_tokens: 4096
+  structured_output: true   # Always output validated JSON
+
+# ──────────────────────────────────────────────────────────
+# STRUCTURED OUTPUT SCHEMA (see also /prompts/pd-ir/output_schema.json)
+# ──────────────────────────────────────────────────────────
+output_schema:
+  required_fields:
+    - incident_id
+    - severity              # P1 | P2 | P3 | P4
+    - phase                 # detection | analysis | containment | eradication | recovery | pir
+    - findings              # list of observations
+    - confidence_score      # 0.0–1.0
+    - proposed_actions      # list of {action, tier, rationale}
+    - escalation_required   # bool
+    - escalation_reason     # string if true
+  output_format: json
+
+# ──────────────────────────────────────────────────────────
+# INTER-AGENT RELATIONSHIPS
+# ──────────────────────────────────────────────────────────
+inter_agent:
+  can_task:
+    - pd-defensive          # Request additional SIEM/EDR queries
+    - pd-threat             # Request threat intel enrichment
+    - pd-forensics          # Request forensic evidence collection
+    - pd-vuln               # Request vulnerability context on affected assets
+
+  receives_tasks_from:
+    - orchestrator          # Primary task dispatcher
+    - pd-defensive          # Escalation from defensive monitoring
+    - og-security-mgmt      # Executive escalation
+
+  cannot_task:
+    - io-sysadmin           # No direct system admin tasking without human approval
+    - og-*                  # Cannot task governance agents
+    - in-*                  # Cannot direct investigation agents (separate chain of custody)
+
+# ──────────────────────────────────────────────────────────
+# SPIFFE IDENTITY
+# ──────────────────────────────────────────────────────────
+identity:
+  spiffe_id_template: "spiffe://cipher.{tenant_id}/ns/cipher/sa/pd-ir/{instance_id}"
+  svid_ttl_seconds: 3600
+  rotation: automatic
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+jules_tasks:
+  - issue: "#004"
+    title: "Implement agent-pd-ir (Incident Response)"
+    tasks:
+      - "Implement AgentPDIR class in src/agents/pd_ir/"
+      - "Read this spec file as source of truth"
+      - "Write system prompt to /prompts/pd-ir/system.md"
+      - "Write memory injection template to /prompts/pd-ir/memory_inject.md"
+      - "Write output schema to /prompts/pd-ir/output_schema.json"
+      - "Implement all T3 tools as async methods"
+      - "Implement T2 action proposal (do NOT implement execution)"
+      - "Write pytest tests for all tool methods + autonomy gate integration"

@@ -1,0 +1,88 @@
+# CIPHER Security Spec — Trust Broker
+# Component: trust_broker
+# Plane: Security
+
+id: trust-broker
+component: TrustBroker
+location: src/security/trust_broker/
+
+description: |
+  Central authorization mediator for all inter-agent communication.
+  Every message sent between agents MUST pass through the Trust Broker.
+  No direct agent-to-agent communication is permitted.
+
+  The Trust Broker:
+  1. Verifies the sender's SPIFFE SVID (not expired, not revoked, correct trust domain)
+  2. Evaluates OPA policy: is this sender allowed to send this action to this receiver?
+  3. Logs the authorization decision (approved or denied) to the audit ledger
+  4. Forwards authorized messages; drops and alerts on unauthorized ones
+
+identity_verification:
+  standard: SPIFFE/SPIRE
+  implementation: pyspiffe  # Python SPIFFE library
+  svid_type: JWT-SVID       # For REST/NATS; X.509-SVID for mTLS
+  verification_steps:
+    - parse_jwt_svid
+    - verify_signature_against_spire_bundle
+    - check_expiry
+    - check_revocation_list
+    - verify_trust_domain_matches_tenant
+
+policy_evaluation:
+  engine: OPA (Open Policy Agent)
+  policy_path: /policies/inter_agent/
+  evaluation_input:
+    caller_spiffe_id: string
+    callee_spiffe_id: string
+    requested_action: string
+    action_params_schema: object   # param types only, not values
+    current_context:
+      incident_id: string | null
+      autonomy_tier: T1 | T2 | T3
+      human_approval_token: string | null
+
+  decision_fields:
+    allow: bool
+    reason: string
+    required_tier_upgrade: T1 | T2 | T3 | null
+
+audit_logging:
+  every_decision: true
+  log_fields:
+    - timestamp
+    - caller_spiffe_id
+    - callee_spiffe_id
+    - requested_action
+    - decision           # allow | deny
+    - policy_reason
+    - latency_ms
+  destination: cipher_audit_ledger  # WORM append-only
+
+error_handling:
+  on_svid_expired: deny + alert_operator + log
+  on_svid_invalid: deny + alert_operator + log + rate_limit_caller
+  on_policy_deny: deny + log
+  on_opa_unavailable: deny_all + alert_operator  # Fail closed
+  on_spire_unavailable: deny_all + alert_operator  # Fail closed
+
+performance:
+  target_p99_latency_ms: 5
+  caching:
+    svid_bundle: ttl=300s
+    opa_decisions: ttl=10s  # Short TTL — policies can change
+  horizontal_scaling: true
+
+jules_tasks:
+  - issue: "#001"
+    title: "Implement Trust Broker"
+    tasks:
+      - "Implement TrustBroker class in src/security/trust_broker/"
+      - "Integrate pyspiffe for SVID verification"
+      - "Implement OPA client for policy evaluation"
+      - "Implement audit ledger writer"
+      - "Fail-closed behavior: if SPIRE or OPA unreachable, deny all"
+      - "Write comprehensive pytest tests including adversarial scenarios"
+      - "Test: expired SVID → deny"
+      - "Test: wrong trust domain → deny"
+      - "Test: OPA down → deny all"
+      - "Test: valid SVID + allowed action → approve + log"
