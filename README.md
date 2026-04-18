@@ -7,6 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![NICE Framework: v2.1](https://img.shields.io/badge/NICE%20Framework-v2.1-green.svg)](https://niccs.cisa.gov/workforce-development/nice-framework)
 [![Status: Pre-Alpha](https://img.shields.io/badge/Status-Pre--Alpha-orange.svg)]()
+[![Agent Profiles](https://img.shields.io/badge/Agent%20Profiles-41%20Roles-cyan.svg)](https://dcplatforms.github.io/cipher/)
 
 ---
 
@@ -129,6 +130,14 @@ See [ROADMAP.md](roadmap/ROADMAP.md) for details.
 This repository is designed for implementation via [Jules](https://jules.google.com) (Google's autonomous coding agent). See [AGENTS.md](AGENTS.md) for Jules guidance and the [`specs/`](specs/) directory for implementation specs.
 
 Phase 1 Jules issues: [#1–#6](https://github.com/dcplatforms/cipher/issues)
+
+---
+
+## Documentation
+
+**Agent Profiles**: [dcplatforms.github.io/cipher](https://dcplatforms.github.io/cipher/)
+
+All 41 NICE work role agent profiles — full KSAs, objectives, authorized tools by autonomy tier, memory access config, and live action counters.
 
 ---
 
