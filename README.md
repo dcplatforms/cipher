@@ -1,6 +1,6 @@
 # CIPHER
 
-**Cybersecurity Intelligence Personas for Human-in-the-loop Enterprise Response**
+**Cybersecurity Intelligence Platform for Human-in-the-loop Enterprise Response**
 
 > Open-source, NICE 2.0-aligned, multi-agent cybersecurity workforce framework.
 
