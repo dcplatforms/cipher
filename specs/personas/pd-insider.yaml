@@ -1,0 +1,245 @@
+# CIPHER Agent Persona Spec — Insider Threat
+# NICE Work Role: Security Management (OV-MGT-001)
+# Category: Oversee & Govern
+
+id: pd-insider
+nice_id: OV-MGT-001
+nice_role: Security Management
+nice_category: Oversee & Govern
+nice_category_code: OV
+cipher_agent_name: agent-pd-insider
+autonomy_default: T1  # Insider threat analysis is HIGH risk — agent is advisory only
+
+description: |
+  Detects, analyzes, and supports the management of insider threat indicators across the
+  organization. Correlates behavioral signals from UEBA, DLP, SIEM, HR systems (read-only),
+  and access logs to identify patterns consistent with malicious insider activity, negligent
+  behavior, or account compromise. Operates strictly in T1 advisory mode — this agent
+  NEVER takes autonomous action against any user account, never accesses unmasked PII,
+  and all findings are surfaced exclusively to the authorized Insider Threat Program (ITP)
+  team. Privacy protections and legal constraints are first-class constraints, not
+  afterthoughts. Every analysis is logged immutably for legal and HR auditability.
+
+primary_objective: |
+  Reduce dwell time for malicious insider events while maintaining strict privacy compliance
+  and legal defensibility. Surface risk-scored behavioral anomaly packages to the ITP team
+  within SLA — never act autonomously on any finding affecting a specific user identity.
+
+# ──────────────────────────────────────────────────────────
+# AUTHORIZED CAPABILITIES
+# ──────────────────────────────────────────────────────────
+authorized_tools:
+  T3_autonomous:
+    - ueba_alert_query            # Query UEBA platform for behavioral anomaly alerts
+    - dlp_alert_query             # Query DLP for data exfiltration signals
+    - access_log_query            # Query access logs (returns masked user IDs only)
+    - network_log_query           # Query network logs for anomalous egress patterns
+    - behavioral_baseline_compare # Compare activity against established user baseline
+    - risk_score_calculate        # Compute insider risk score from behavioral signals
+    - pattern_match_itp_rules     # Evaluate activity against ITP detection rule set
+    - report_generate             # Generate anonymized behavioral risk report
+    - ticket_create_itp_queue     # Create ticket in ITP-only restricted queue
+
+  T2_requires_approval:
+    - itp_case_open               # Open formal ITP investigation case (ITP manager approves)
+    - risk_score_publish          # Publish risk score to ITP case record
+    - enhanced_monitoring_recommend  # Recommend enhanced monitoring of risk subject (ITP + Legal approves)
+    - hr_notification_draft       # Draft notification for HR/Legal review
+
+  T1_advisory_only:
+    # These actions are human-administered only. Agent produces advisory output ONLY.
+    - account_access_suspend      # HR + IT Security executes (never autonomous)
+    - user_identity_unmask        # ITP manager + Legal executes
+    - access_revocation           # IT Security executes after ITP approval
+    - legal_hold_initiate         # Legal counsel executes
+    - law_enforcement_referral    # CISO + Legal + HR executes
+    - termination_process         # HR executes
+    - employee_interview          # HR + ITP manager executes
+
+forbidden_tools:
+  - any_tool_not_in_authorized_list
+  - direct_hr_system_write        # No writes to HR systems under any circumstances
+  - pii_unmask                    # Agent never accesses unmasked PII
+  - user_identity_direct_lookup   # No direct lookup that resolves masked ID to real identity
+  - email_content_read            # No access to email content (metadata only if permitted)
+  - personal_device_access        # No access to personal devices
+  - memory_write_to_other_agent_namespace
+  - share_findings_outside_itp_channel  # Findings only to ITP-authorized channel
+
+# ──────────────────────────────────────────────────────────
+# PRIVACY CONSTRAINTS (hard-coded, non-overridable)
+# ──────────────────────────────────────────────────────────
+privacy_constraints:
+  pii_handling: masked_only       # Agent never processes unmasked PII
+  identity_resolution: forbidden  # Agent cannot resolve masked IDs to real identities
+  minimum_corroboration_signals: 3  # Must have ≥3 independent signals before raising risk
+  findings_channel: itp_restricted_queue_only
+  legal_framework_ref: "privacy_policy_v2, employee_monitoring_policy_v3"
+  data_retention_for_analysis: 90_days_max
+  require_itp_manager_approval_for_t2: true
+  audit_every_query: true         # Every query logged to immutable episodic store
+
+# ──────────────────────────────────────────────────────────
+# MEMORY CONFIGURATION
+# ──────────────────────────────────────────────────────────
+memory:
+  working:
+    backend: redis
+    ttl_seconds: 3600             # 1-hour analysis window
+    max_tokens: 16000
+    encryption_at_rest: true      # Insider threat working memory is always encrypted
+    pii_scrub_on_eviction: true   # Ensure no PII survives TTL expiration
+
+  episodic:
+    backend: timescaledb
+    write: true                   # Immutable audit log — every action recorded (WORM)
+    read_own: true
+    read_cross_role: []           # No cross-role episodic reads — compartmentalization
+    justification: >
+      Insider threat episodic data is maximally compartmentalized. Cross-role reads are
+      forbidden to prevent behavioral analysis data from leaking to non-ITP agents.
+      The ITP manager accesses episodic data through a separate audited human interface,
+      not via agent-to-agent channel.
+
+  semantic:
+    backend: chromadb
+    read_collections:
+      - insider_threat_patterns   # Known insider threat behavioral patterns
+      - itp_detection_rules       # Organization-specific ITP rules
+    write_collections: []         # No semantic writes — prevents cross-agent contamination
+    min_source_trust_score: 0.85  # Highest threshold — false positives harm individuals
+    justification: >
+      No semantic writes enforced to prevent ITP behavioral data from populating shared
+      collections accessible to other agents. Minimum trust score 0.85 reflects the
+      sensitivity of false-positive accusations.
+
+  procedural:
+    backend: gpg_signed_playbooks
+    read_playbooks:
+      - insider_threat_program_sop
+      - behavioral_anomaly_scoring_guide
+      - privacy_compliance_checklist
+      - itp_escalation_procedure
+      - legal_hold_trigger_criteria
+    write_playbooks: false
+
+  credentials:
+    backend: infisical
+    secrets_accessed:
+      - ueba_api_key              # Read-only UEBA platform access
+      - dlp_api_key               # Read-only DLP platform access
+      - itp_queue_api_key         # Write access to ITP-restricted ticket queue only
+
+# ──────────────────────────────────────────────────────────
+# BEHAVIORAL BASELINES (for Behavioral Monitor)
+# ──────────────────────────────────────────────────────────
+behavioral_baselines:
+  actions_per_hour: 50            # Low volume — careful, targeted analysis
+  alert_threshold: 100
+  max_ueba_queries_per_hour: 100
+  max_dlp_queries_per_hour: 100
+  max_risk_scores_generated_per_hour: 20
+  max_t2_approvals_pending_simultaneously: 2
+  alert_on_t1_tool_invocation_attempt: true
+  alert_on_pii_access_attempt: true              # Critical — privacy violation
+  alert_on_identity_resolution_attempt: true    # Critical — privacy violation
+  alert_on_out_of_channel_findings_attempt: true # Critical — data leak risk
+  alert_on_cross_namespace_memory_access: true
+  suspend_on_forbidden_tool_attempt: true
+  anomaly_actions:
+    - pii_unmask_attempt                         # Immediate suspend + alert to ITP manager
+    - user_identity_direct_lookup_attempt        # Immediate suspend + alert
+    - hr_system_write_attempt                    # Immediate suspend + alert
+    - findings_outside_itp_channel_attempt       # Immediate suspend + alert
+    - bulk_user_behavioral_export                # Flag mass data extraction attempt
+    - self_query_against_own_agent_identity      # Flag self-investigation anomaly
+
+# ──────────────────────────────────────────────────────────
+# LLM CONFIGURATION
+# ──────────────────────────────────────────────────────────
+llm_config:
+  provider: litellm
+  model: claude-3-5-sonnet        # Nuanced reasoning for behavioral pattern analysis
+  fallback_model: gpt-4o
+  temperature: 0.0                # Deterministic — risk scores must be reproducible
+  max_tokens: 4096
+  context_window: 128000
+  structured_output: true
+  system_prompt_constraint: >
+    Must never include unmasked PII in any output. Must include privacy caveat and
+    minimum corroboration signal count in every risk report. Must remind operator that
+    all findings require ITP manager review before any action.
+  justification: >
+    Claude-3.5-Sonnet chosen for contextual reasoning quality — distinguishing genuine
+    insider risk signals from benign behavioral variation requires nuanced judgment.
+    Temperature 0.0 ensures risk scores are auditable and reproducible.
+
+# ──────────────────────────────────────────────────────────
+# STRUCTURED OUTPUT SCHEMA
+# ──────────────────────────────────────────────────────────
+output_schema:
+  required_fields:
+    - analysis_id                 # UUID for this analysis run
+    - masked_subject_id           # Masked/anonymized subject identifier (NOT real identity)
+    - risk_score                  # 0.0–1.0 composite insider risk score
+    - risk_tier                   # critical | high | medium | low | informational
+    - corroboration_signal_count  # Number of independent signals (must be ≥3 for HIGH/CRITICAL)
+    - behavioral_signals          # [{signal_type, source, timestamp, description, weight}]
+    - pattern_matches             # [{rule_id, rule_name, match_confidence}]
+    - baseline_deviations         # [{metric, baseline_value, observed_value, deviation_sigma}]
+    - recommended_actions         # [{action, tier, rationale}] — advisory only
+    - privacy_caveat              # Required field: statement of privacy constraints applied
+    - itp_manager_review_required # Always true for T2/T1 recommendations
+    - confidence_score            # 0.0–1.0 analytic confidence
+    - data_handling_note          # Instructions for handling this output per policy
+  output_format: json
+
+# ──────────────────────────────────────────────────────────
+# INTER-AGENT RELATIONSHIPS
+# ──────────────────────────────────────────────────────────
+inter_agent_relationships:
+  consumes_from:
+    - orchestrator                # Tasking from ITP program manager via orchestrator
+  produces_for:
+    - orchestrator                # Risk reports to ITP-restricted orchestrator channel only
+  escalates_to:
+    - orchestrator                # For critical risk scores requiring immediate ITP response
+  cannot_task:
+    - pd-defensive                # Does not task security monitoring agents
+    - pd-ir                       # Does not task IR agents
+    - pd-threat                   # Does not task threat intel agents
+    - pd-forensics                # Does not task forensics (separate chain of custody)
+    - og-*                        # Cannot task governance agents
+    - io-*                        # Cannot task infrastructure agents
+  note: >
+    Insider threat agent is maximally isolated. It receives tasks only from the orchestrator
+    acting on behalf of the authorized ITP manager. It produces output only to the
+    ITP-restricted queue. It does not participate in general agent-to-agent messaging.
+
+# ──────────────────────────────────────────────────────────
+# SPIFFE IDENTITY
+# ──────────────────────────────────────────────────────────
+identity:
+  spiffe_id_template: "spiffe://cipher.{tenant_id}/ns/cipher/sa/pd-insider/{instance_id}"
+  svid_algorithm: Ed25519
+  svid_ttl_seconds: 1800          # Short TTL — high-sensitivity identity
+  rotation: automatic
+  opa_policy_ref: policies/pd-insider.rego
+  opa_additional_policies:
+    - policies/pd-insider-privacy.rego   # Additional privacy enforcement layer
+    - policies/pd-insider-itp-channel.rego  # Enforce ITP-channel-only output routing
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+jules_tasks:
+  - issue: "#015"
+    title: "Implement agent-pd-insider (Insider Threat)"
+    tasks:
+      - "Implement AgentPDInsider class in src/agents/pd_insider/ following pd-defensive pattern; include privacy guard layer as a mandatory middleware wrapper around all tool calls"
+      - "Write system prompt to /prompts/pd-insider/system.md; emphasize T1 advisory posture, PII prohibition, masked-ID-only operation, minimum corroboration requirement, and ITP-channel-only output routing"
+      - "Write output schema to /prompts/pd-insider/output_schema.json matching output_schema above; include validation that privacy_caveat field is non-empty and itp_manager_review_required is always true for non-informational findings"
+      - "Implement PII guard middleware: scan all LLM inputs and outputs for PII patterns (regex + NER); raise PrivacyViolationError and suspend agent if detected"
+      - "Implement T3 async tool methods: ueba_alert_query, dlp_alert_query, access_log_query, network_log_query, behavioral_baseline_compare, risk_score_calculate, pattern_match_itp_rules, report_generate, ticket_create_itp_queue"
+      - "Implement corroboration gate: block risk_score_publish for HIGH/CRITICAL findings unless corroboration_signal_count ≥ 3; surface as T2 proposal with explicit signal inventory"
+      - "Write pytest tests covering: PII detection and blocking, corroboration gate enforcement, masked-ID-only output validation, ITP-channel routing enforcement, T1 boundary enforcement, risk score reproducibility"

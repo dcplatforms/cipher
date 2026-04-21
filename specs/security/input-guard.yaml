@@ -1,0 +1,442 @@
+# CIPHER Security Spec — Input Guard
+# Component: input_guard
+# Plane: Security
+
+id: input-guard
+component: InputGuard
+location: src/security/input_guard/
+version: "0.1"
+
+description: |
+  The Input Guard is the mandatory sanitization layer for ALL external data
+  entering any CIPHER agent context window. No external data bypasses the
+  Input Guard.
+
+  The Input Guard defends against:
+    - Prompt injection: malicious instructions embedded in external data payloads
+    - Data exfiltration via prompt: crafted inputs that instruct agents to leak data
+    - Cross-tenant contamination: data from one tenant leaking into another tenant's context
+
+  Core operating principle:
+    All external data is wrapped in DATA_CONTEXT delimiters before agent injection.
+    External data NEVER enters a SYSTEM_INSTRUCTION block under any circumstances.
+    Agents are trained to treat DATA_CONTEXT content as untrusted user data only.
+
+  Every input chunk processed by the Input Guard receives a source provenance tag
+  before it is forwarded, enabling downstream traceability.
+
+component_type: security_filter
+
+# ──────────────────────────────────────────────────────────
+# RESPONSIBILITIES
+# ──────────────────────────────────────────────────────────
+
+responsibilities:
+  - Receive all inbound external data from Intent Router and agent tool call returns
+  - Wrap every external data chunk in DATA_CONTEXT delimiter tags
+  - Run regex-based injection pattern detection against known attack patterns
+  - Run ML-based injection classification for novel/obfuscated patterns
+  - Detect and flag data exfiltration attempt patterns (e.g., "ignore previous instructions")
+  - Scrub PII from content before it is written to semantic memory
+  - Tag every sanitized chunk with source provenance metadata
+  - Quarantine suspicious inputs: hold in quarantine queue, do not forward to agent
+  - Alert og-security-mgmt on quarantine events
+  - Log every Input Guard decision to the audit ledger
+
+# ──────────────────────────────────────────────────────────
+# INTERFACES
+# ──────────────────────────────────────────────────────────
+
+interfaces:
+
+  inputs:
+    external_data_request:
+      transport: NATS JetStream subject "cipher.input_guard.inbound"
+      schema:
+        guard_request_id: uuid
+        request_id: uuid                    # Originating operator request
+        tenant_id: string
+        agent_id: string                    # Requesting agent (or intent_router for initial request)
+        data_type: operator_request | tool_return | threat_intel | log_data | document | api_response
+        data_payload: string | object       # Raw external content to sanitize
+        source_id: string                   # e.g., "siem-splunk-01", "operator:user123"
+        source_type: threat_intel_feed | siem_log | agent_analysis | human_input | external_api
+        source_trust_score: float           # 0.0–1.0; provided by caller
+        session_id: uuid
+        timestamp: iso8601
+      validation:
+        - tenant_id_must_be_non_empty
+        - source_trust_score_range: [0.0, 1.0]
+        - data_payload_max_size_bytes: 524288  # 512 KB; larger payloads rejected
+
+  outputs:
+    sanitized_data:
+      transport: NATS JetStream subject "cipher.input_guard.sanitized"
+      schema:
+        guard_request_id: uuid
+        request_id: uuid
+        tenant_id: string
+        sanitized_payload: string           # DATA_CONTEXT-wrapped, PII-scrubbed content
+        provenance: ProvenanceTag
+        pii_fields_scrubbed: list[string]   # PII types removed (e.g., ["email", "ip_address"])
+        injection_scan_result:
+          clean: bool
+          patterns_checked: int
+          latency_ms: float
+        guard_decision: clean | quarantined
+        timestamp: iso8601
+
+    quarantine_event:
+      transport: NATS JetStream subject "cipher.input_guard.quarantine"
+      schema:
+        guard_request_id: uuid
+        request_id: uuid
+        tenant_id: string
+        source_id: string
+        source_type: string
+        detection_method: regex | ml_classifier | exfiltration_heuristic
+        matched_patterns: list[string]      # Pattern IDs or classifier labels matched
+        confidence_score: float             # ML classifier confidence (if applicable)
+        payload_hash: string                # SHA-256 of original payload (not content; for forensics)
+        timestamp: iso8601
+
+    ProvenanceTag:
+      fields:
+        - source_type: string
+        - source_id: string
+        - source_trust_score: float
+        - ingested_by: string               # agent_id or "input_guard"
+        - ingested_at: iso8601
+        - content_hash: string              # SHA-256 of sanitized content
+        - guard_request_id: uuid
+        - pii_scrubbed: bool
+
+# ──────────────────────────────────────────────────────────
+# DATA CONTEXT WRAPPING
+# ──────────────────────────────────────────────────────────
+
+data_context_wrapping:
+  description: |
+    All external content MUST be wrapped in DATA_CONTEXT delimiters before
+    reaching any agent context window. This is enforced at the Input Guard
+    output layer, not left to individual agents.
+
+    Format:
+      <DATA_CONTEXT source="{source_id}" trust="{trust_score}" id="{guard_request_id}">
+      {sanitized_content}
+      </DATA_CONTEXT>
+
+  rules:
+    - external_data_never_injected_outside_data_context: true
+    - system_instruction_blocks_never_contain_external_data: true
+    - nested_data_context_tags_flattened: true    # Prevent tag injection via nested delimiters
+    - delimiter_characters_escaped_in_payload: true  # Prevent tag spoofing
+
+  system_instruction_protection:
+    description: |
+      SYSTEM_INSTRUCTION blocks are written at agent initialization from
+      GPG-signed playbook files only. The Input Guard has no ability to
+      inject into system instruction blocks. This separation is enforced
+      by architecture (different write path) not just policy.
+
+# ──────────────────────────────────────────────────────────
+# INJECTION DETECTION
+# ──────────────────────────────────────────────────────────
+
+injection_detection:
+
+  regex_scanner:
+    pattern_library_path: /config/input_guard/injection_patterns.yaml
+    pattern_categories:
+      - direct_override: ["ignore previous instructions", "disregard your system prompt", "you are now", "new task:"]
+      - role_jailbreak: ["pretend you are", "act as if", "your new persona", "roleplay as"]
+      - exfiltration_attempt: ["repeat your instructions", "print your system prompt", "output your context"]
+      - delimiter_injection: ["</DATA_CONTEXT>", "<SYSTEM_INSTRUCTION>", "[SYSTEM]", "###INSTRUCTIONS"]
+      - encoding_obfuscation: [base64_payload_heuristic, unicode_lookalike_heuristic, hex_encoding_heuristic]
+    hot_reload: true    # Pattern library reloaded without service restart on file change
+    action_on_match: quarantine
+
+  ml_classifier:
+    type: fine-tuned binary classifier (injection | clean)
+    base_model: microsoft/deberta-v3-small
+    fine_tune_dataset: /data/training/injection_detection/
+    confidence_threshold: 0.85    # Above this → quarantine; below → pass (with log if > 0.60)
+    inference:
+      provider: local              # Run locally; no external API call for security-critical path
+      max_input_tokens: 512
+      batch_size: 1                # Single-instance evaluation for latency
+    fallback: regex_scanner_only   # If model unavailable, fall back to regex only + log warning
+    hot_reload: true
+
+  exfiltration_heuristics:
+    description: Pattern-match for prompts crafted to make agents leak internal context
+    patterns:
+      - instruction_reflection: requests to repeat/print/output system instructions
+      - context_probing: requests to describe available tools or memory contents
+      - indirect_exfil: multi-step prompts designed to embed context in output artifacts
+    action_on_match: quarantine
+
+  cross_tenant_detection:
+    description: |
+      Detect if payload contains references to another tenant's identifiers,
+      which may indicate cross-tenant contamination or a targeting attack.
+    checks:
+      - tenant_id_references_in_payload: flag if foreign tenant_id found in content
+      - namespace_pattern_leakage: flag if cipher:{other_tenant_id}: patterns present
+    action_on_match: quarantine + alert_operator
+
+# ──────────────────────────────────────────────────────────
+# PII SCRUBBING
+# ──────────────────────────────────────────────────────────
+
+pii_scrubbing:
+  applies_to: all data destined for semantic memory writes
+  library: Microsoft Presidio (presidio-analyzer + presidio-anonymizer)
+  pii_types_detected:
+    - PERSON
+    - EMAIL_ADDRESS
+    - PHONE_NUMBER
+    - IP_ADDRESS            # External/public IPs only; internal RFC-1918 retained as asset data
+    - CREDIT_CARD
+    - US_SSN
+    - DATE_OF_BIRTH
+    - LOCATION             # Physical addresses
+    - NRP                  # Nationality, religion, political affiliation
+  scrubbing_method:
+    default: replace_with_type_tag   # e.g., <EMAIL_ADDRESS>
+    ip_address: preserve_if_internal_rfc1918  # Internal IPs are valid security data
+  minimum_confidence_threshold: 0.75   # Presidio entity confidence; below → do not scrub
+  scrubbing_required_before:
+    - MemoryManager.semantic.write    # Enforced at Input Guard output; agents cannot bypass
+
+  pii_audit_logging:
+    log_scrubbing_events: true
+    log_fields:
+      - guard_request_id
+      - tenant_id
+      - pii_types_removed
+      - count_entities_scrubbed
+    destination: cipher_audit_ledger
+
+# ──────────────────────────────────────────────────────────
+# QUARANTINE QUEUE
+# ──────────────────────────────────────────────────────────
+
+quarantine_queue:
+  backend: PostgreSQL table cipher_input_quarantine
+  schema:
+    - quarantine_id: uuid PRIMARY KEY
+    - guard_request_id: uuid NOT NULL
+    - tenant_id: text NOT NULL
+    - source_id: text NOT NULL
+    - source_type: text NOT NULL
+    - detection_method: text NOT NULL
+    - matched_patterns: jsonb
+    - ml_confidence_score: float
+    - payload_hash: text NOT NULL      # SHA-256; original payload NOT stored
+    - review_status: pending | reviewed_safe | reviewed_malicious | escalated
+    - reviewed_by: text                # operator_id on review
+    - reviewed_at: timestamptz
+    - created_at: timestamptz NOT NULL
+
+  review_api:
+    endpoint_list: GET /api/v1/input-guard/quarantine
+    endpoint_get: GET /api/v1/input-guard/quarantine/{quarantine_id}
+    endpoint_review: POST /api/v1/input-guard/quarantine/{quarantine_id}/review
+    authentication: Keycloak bearer token (requires security_analyst role)
+
+  auto_escalation:
+    on_quarantine_count_exceeds_per_source:
+      threshold: 3_in_60m
+      action: escalate + alert og-security-mgmt + increase source risk scoring weight
+
+  retention: 90_days_then_archive    # Forensic retention requirement
+
+# ──────────────────────────────────────────────────────────
+# SECURITY CONFIG
+# ──────────────────────────────────────────────────────────
+
+security_config:
+  fail_closed: true
+  on_ml_classifier_unavailable:
+    action: fall back to regex scanner + log warning
+  on_regex_scanner_unavailable:
+    action: deny all inputs + alert_operator + log critical
+  on_pii_scrubber_unavailable:
+    action: block semantic memory writes (safe path) + alert_operator + log critical
+  on_quarantine_queue_write_failure:
+    action: deny input + alert_operator + log critical
+    note: "Suspicious input must be quarantined or denied — never forwarded silently"
+  trust_score_quarantine_threshold: 0.40  # Inputs with source trust < 0.40 are quarantined immediately
+  audit_logging:
+    every_guard_decision: true
+    every_quarantine: true
+    every_pii_scrub: true
+    log_fields:
+      - guard_request_id
+      - tenant_id
+      - agent_id
+      - data_type
+      - source_id
+      - source_trust_score
+      - injection_scan_result
+      - pii_scrubbed
+      - guard_decision
+      - latency_ms
+    destination: cipher_audit_ledger  # WORM append-only
+
+# ──────────────────────────────────────────────────────────
+# PERFORMANCE CONFIG
+# ──────────────────────────────────────────────────────────
+
+performance_config:
+  target_p99_latency_ms: 80     # Regex scan + ML inference + PII scrub + provenance tag
+  target_p50_latency_ms: 25
+  max_payload_size_bytes: 524288  # 512 KB hard limit; larger payloads rejected with error
+  caching:
+    regex_pattern_compile:
+      ttl_seconds: 0     # Patterns hot-reloaded; compiled patterns cached in memory indefinitely until reload
+    ml_model_predictions:
+      enabled: false     # No caching of security predictions — each input evaluated fresh
+  horizontal_scaling: true
+  max_concurrent_evaluations: 1000
+
+# ──────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ──────────────────────────────────────────────────────────
+
+error_handling:
+  on_payload_exceeds_size_limit:
+    action: deny + return error to caller + log
+  on_invalid_source_trust_score:
+    action: treat as trust_score=0.0 + quarantine + log warning
+  on_low_source_trust:
+    threshold: 0.40
+    action: quarantine immediately (skip ML scan) + log
+  on_ml_model_error:
+    action: fall back to regex scanner + log warning (not critical; regex still runs)
+  on_nats_publish_failure:
+    action: retry(3, exponential_backoff) → dead_letter_queue + alert_operator
+  on_quarantine_alert_delivery_failure:
+    action: retry(3) → log critical (alert failure is itself a security concern)
+
+# ──────────────────────────────────────────────────────────
+# OBSERVABILITY
+# ──────────────────────────────────────────────────────────
+
+observability:
+
+  metrics:
+    - name: input_guard_requests_total
+      type: counter
+      labels: [tenant_id, data_type, guard_decision]
+    - name: input_guard_injections_detected_total
+      type: counter
+      labels: [tenant_id, detection_method, pattern_category]
+    - name: input_guard_pii_scrubs_total
+      type: counter
+      labels: [tenant_id, pii_type]
+    - name: input_guard_quarantine_total
+      type: counter
+      labels: [tenant_id, source_type, detection_method]
+    - name: input_guard_ml_confidence_score
+      type: histogram
+      buckets: [0.5, 0.60, 0.70, 0.80, 0.85, 0.90, 0.95, 1.0]
+    - name: input_guard_processing_latency_ms
+      type: histogram
+      labels: [data_type, guard_decision]
+    - name: input_guard_ml_fallback_active
+      type: gauge
+
+  traces:
+    provider: OpenTelemetry
+    spans:
+      - payload_size_validation
+      - trust_score_check
+      - regex_injection_scan
+      - ml_classifier_inference
+      - exfiltration_heuristic_check
+      - cross_tenant_check
+      - pii_scrubbing
+      - data_context_wrapping
+      - provenance_tag_creation
+      - audit_ledger_write
+      - nats_publish
+    propagation: W3C TraceContext; trace_id from Intent Router preserved
+
+  alerts:
+    - name: InputGuardHighInjectionRate
+      condition: "rate(input_guard_injections_detected_total[5m]) > 5"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: InputGuardQuarantineSpike
+      condition: "rate(input_guard_quarantine_total[5m]) > 10"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: InputGuardMLFallbackActive
+      condition: "input_guard_ml_fallback_active == 1 for 5m"
+      severity: warning
+      notify: operator_dashboard
+    - name: InputGuardHighLatency
+      condition: "input_guard_processing_latency_ms p99 > 200ms for 5m"
+      severity: warning
+      notify: operator_dashboard
+    - name: InputGuardCriticalFailure
+      condition: "regex_scanner_unavailable == true"
+      severity: critical
+      notify: og-security-mgmt + operator_dashboard + pagerduty
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+
+jules_tasks:
+  - issue: "#030"
+    title: "Implement InputGuard core (NATS consumer, DATA_CONTEXT wrapper, provenance tagger, audit writer)"
+    tasks:
+      - "Implement InputGuard class in src/security/input_guard/"
+      - "Subscribe to cipher.input_guard.inbound via NATS JetStream"
+      - "Implement payload size validation and rejection"
+      - "Implement DATA_CONTEXT wrapping with delimiter escaping in payload"
+      - "Implement ProvenanceTag dataclass and attachment to sanitized output"
+      - "Publish sanitized output to cipher.input_guard.sanitized"
+      - "Write pytest tests: valid input → wrapped + provenance, oversized → reject"
+
+  - issue: "#031"
+    title: "Injection pattern library and regex scanner"
+    tasks:
+      - "Create /config/input_guard/injection_patterns.yaml with all pattern categories"
+      - "Implement RegexScanner class with hot-reload via watchdog file watcher"
+      - "Implement pattern categories: direct_override, role_jailbreak, exfiltration_attempt, delimiter_injection, encoding_obfuscation"
+      - "Implement encoding obfuscation heuristics (base64, unicode lookalike, hex)"
+      - "Write pytest tests: each pattern category detected, clean input passes, obfuscated pattern detected"
+
+  - issue: "#032"
+    title: "ML-based injection classifier"
+    tasks:
+      - "Implement MLInjectionClassifier class wrapping DeBERTa fine-tuned model"
+      - "Create fine-tuning dataset pipeline from /data/training/injection_detection/"
+      - "Implement training script with precision/recall metrics"
+      - "Implement confidence threshold logic: >= 0.85 → quarantine, 0.60–0.85 → log only"
+      - "Implement fallback to regex-only mode if model unavailable"
+      - "Implement hot-swap model reload without service restart"
+      - "Write pytest tests: injection payload → high confidence, clean payload → low confidence, fallback activation"
+
+  - issue: "#033"
+    title: "PII scrubber integration (Presidio)"
+    tasks:
+      - "Implement PIIScrubber class wrapping Microsoft Presidio analyzer + anonymizer"
+      - "Configure all PII entity types per spec"
+      - "Implement IP address exception: preserve RFC-1918 addresses, scrub public IPs"
+      - "Implement audit event emission for each scrubbing operation"
+      - "Enforce: PIIScrubber.scrub() called before every MemoryManager.semantic.write()"
+      - "Write pytest tests: email scrubbed, internal IP preserved, external IP scrubbed, no-PII input unchanged"
+
+  - issue: "#034"
+    title: "Quarantine workflow (queue, API, auto-escalation)"
+    tasks:
+      - "Create cipher_input_quarantine PostgreSQL table"
+      - "Implement QuarantineQueue class: write event (payload_hash only, not content), update review status"
+      - "Implement REST review API endpoints with Keycloak auth"
+      - "Implement auto-escalation: 3+ quarantines from same source in 60m → alert og-security-mgmt"
+      - "Write pytest tests: quarantine write, review flow, auto-escalation trigger"

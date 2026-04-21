@@ -1,0 +1,562 @@
+# CIPHER Security Spec — Behavioral Monitor
+# Component: behavioral_monitor
+# Plane: Security
+
+id: behavioral-monitor
+component: BehavioralMonitor
+location: src/security/behavioral_monitor/
+version: "0.1"
+
+description: |
+  The Behavioral Monitor tracks per-agent action baselines and detects anomalies
+  in real-time across all running CIPHER agents. It provides continuous assurance
+  that agents are operating within their expected behavioral envelopes.
+
+  The monitor operates on a graduated response ladder:
+    WARN     → Log anomaly, emit alert to og-security-mgmt, continue operation
+    THROTTLE → Rate-limit agent's tool call throughput by 80% for 10 minutes
+    SUSPEND  → Halt agent execution; queue pending actions; require operator review to resume
+    ISOLATE  → Revoke agent's SPIFFE SVID (via SPIRE); cut network access; full forensic capture
+
+  Graduated response escalates automatically if anomalous behavior persists after
+  each step. Every response action is written to the WORM audit ledger as forensic
+  evidence.
+
+  The Behavioral Monitor has no ability to approve agent actions — it is a
+  detection and response component only. All response escalations above WARN
+  are logged as security events and surface to the operator dashboard.
+
+component_type: security_monitor
+
+# ──────────────────────────────────────────────────────────
+# RESPONSIBILITIES
+# ──────────────────────────────────────────────────────────
+
+responsibilities:
+  - Maintain per-agent baseline profiles (actions/hour, memory access rate, tool call patterns)
+  - Consume agent activity events from NATS in real-time
+  - Compute Z-score anomaly scores on sliding time windows per agent
+  - Trigger graduated response (WARN → THROTTLE → SUSPEND → ISOLATE) on anomaly detection
+  - Auto-escalate if anomalous behavior continues after WARN or THROTTLE response
+  - Integrate with SPIRE to revoke SVIDs on ISOLATE events
+  - Route alerts to og-security-mgmt agent and operator dashboard
+  - Write all detection and response events to the WORM audit ledger (forensic evidence)
+  - Expose baseline profiles and anomaly history via read-only API
+  - Provide Grafana dashboard data via Prometheus metrics
+
+# ──────────────────────────────────────────────────────────
+# INTERFACES
+# ──────────────────────────────────────────────────────────
+
+interfaces:
+
+  inputs:
+    agent_activity_event:
+      transport: NATS JetStream subject "cipher.telemetry.agent_activity"
+      description: |
+        All agents emit an activity event for every tool call, memory access,
+        inter-agent message, and autonomy gate interaction. The Behavioral Monitor
+        consumes this stream continuously.
+      schema:
+        event_id: uuid
+        tenant_id: string
+        agent_id: string
+        agent_role: string
+        session_id: uuid
+        event_type: tool_call | memory_read | memory_write | inter_agent_message | gate_submission | gate_result
+        tool_name: string | null          # Set for tool_call events
+        memory_collection: string | null  # Set for memory events
+        target_agent_id: string | null    # Set for inter_agent_message events
+        action_tier: T1 | T2 | T3 | null
+        outcome: success | failure | denied
+        latency_ms: float
+        otel_trace_id: string
+        timestamp: iso8601
+
+    operator_resume_command:
+      transport: REST POST /api/v1/behavioral-monitor/resume
+      schema:
+        agent_id: string
+        tenant_id: string
+        operator_id: string
+        operator_keycloak_token: string
+        resume_from: THROTTLE | SUSPEND
+        operator_rationale: string
+        timestamp: iso8601
+
+  outputs:
+    anomaly_alert:
+      transport: NATS JetStream subject "cipher.alerts.behavioral_anomaly"
+      schema:
+        alert_id: uuid
+        tenant_id: string
+        agent_id: string
+        agent_role: string
+        anomaly_type: string              # e.g., tool_call_spike, memory_access_rate, forbidden_tool_attempt
+        z_score: float
+        baseline_value: float
+        observed_value: float
+        window_seconds: int
+        response_action: WARN | THROTTLE | SUSPEND | ISOLATE
+        evidence_audit_ids: list[uuid]    # Audit ledger event IDs for forensic reference
+        timestamp: iso8601
+
+    throttle_directive:
+      transport: NATS JetStream subject "cipher.control.agent_throttle"
+      schema:
+        agent_id: string
+        tenant_id: string
+        throttle_level: float             # 0.0–1.0; 0.80 = allow 20% of baseline throughput
+        duration_seconds: int
+        alert_id: uuid
+        timestamp: iso8601
+
+    suspend_directive:
+      transport: NATS JetStream subject "cipher.control.agent_suspend"
+      schema:
+        agent_id: string
+        tenant_id: string
+        suspend_reason: string
+        alert_id: uuid
+        requires_operator_review: true
+        timestamp: iso8601
+
+    isolate_directive:
+      transport: NATS JetStream subject "cipher.control.agent_isolate"
+      schema:
+        agent_id: string
+        tenant_id: string
+        agent_spiffe_id: string
+        isolation_reason: string
+        svid_revocation_requested: true
+        alert_id: uuid
+        timestamp: iso8601
+
+# ──────────────────────────────────────────────────────────
+# BASELINE PROFILES
+# ──────────────────────────────────────────────────────────
+
+baseline_profiles:
+  description: |
+    Each agent has an individual baseline profile computed from its rolling
+    activity history. Profiles are stored per (tenant_id, agent_id) key.
+    New agents are initialized with role-level default baselines from the
+    persona spec's behavioral_baselines section; agent-specific profiles
+    emerge after 24 hours of normal operation.
+
+  storage:
+    backend: TimescaleDB (cipher_agent_baselines table)
+    schema:
+      - profile_id: uuid PRIMARY KEY
+      - tenant_id: text NOT NULL
+      - agent_id: text NOT NULL
+      - agent_role: text NOT NULL
+      - metric_name: text NOT NULL
+      - window_seconds: int NOT NULL
+      - baseline_mean: float NOT NULL
+      - baseline_stddev: float NOT NULL
+      - sample_count: int NOT NULL
+      - computed_at: timestamptz NOT NULL
+      - profile_version: int NOT NULL
+
+  metrics_tracked:
+    - name: tool_calls_per_hour
+      window_seconds: 3600
+    - name: memory_reads_per_hour
+      window_seconds: 3600
+    - name: memory_writes_per_hour
+      window_seconds: 3600
+    - name: inter_agent_messages_per_hour
+      window_seconds: 3600
+    - name: gate_submissions_per_hour
+      window_seconds: 3600
+    - name: consecutive_failures
+      window_seconds: 300    # 5-minute rolling window
+    - name: unique_tools_used_per_hour
+      window_seconds: 3600
+    - name: t2_approvals_pending_simultaneously
+      window_seconds: 0      # Point-in-time gauge, not rate
+
+  initialization:
+    new_agent_baseline_source: persona_spec_behavioral_baselines
+    graduation_to_learned_baseline_after_hours: 24
+    minimum_sample_count_for_learned_baseline: 100
+
+  update_frequency_minutes: 5   # Baselines recomputed every 5 minutes on recent history
+
+# ──────────────────────────────────────────────────────────
+# ANOMALY DETECTION
+# ──────────────────────────────────────────────────────────
+
+anomaly_detection:
+
+  z_score:
+    formula: "(observed_value - baseline_mean) / baseline_stddev"
+    thresholds:
+      warn: 2.5
+      throttle: 3.5
+      suspend: 5.0
+    minimum_baseline_stddev: 1.0   # Prevent division-by-zero; floor stddev at 1.0
+
+  sliding_windows:
+    short_window_seconds: 300      # 5 min: detect burst spikes
+    medium_window_seconds: 3600    # 1 hour: detect sustained elevation
+    long_window_seconds: 86400     # 24 hour: detect slow-burn drift
+    use: short_window for THROTTLE/SUSPEND triggers; long_window for baseline drift alerts
+
+  hard_rule_triggers:
+    description: |
+      Certain conditions trigger immediate response regardless of Z-score.
+      These are defined in persona specs as behavioral_baselines hard rules
+      and are cross-referenced here.
+    rules:
+      - condition: forbidden_tool_invocation_attempt
+        response: SUSPEND immediately + alert og-security-mgmt
+        source: persona_spec.behavioral_baselines.suspend_on_forbidden_tool_attempt
+      - condition: t1_tool_invocation_attempt
+        response: SUSPEND immediately + alert og-security-mgmt
+        source: persona_spec.behavioral_baselines.alert_on_t1_tool_invocation_attempt
+      - condition: cross_namespace_memory_access_attempt
+        response: SUSPEND immediately + alert og-security-mgmt
+        source: persona_spec.behavioral_baselines.alert_on_cross_namespace_memory_access
+      - condition: consecutive_failed_queries_threshold
+        response: WARN + alert og-security-mgmt
+        source: persona_spec.behavioral_baselines.alert_on_consecutive_failed_queries
+
+  anomaly_types_detected:
+    - tool_call_rate_spike
+    - memory_read_rate_spike
+    - memory_write_rate_spike
+    - inter_agent_message_spike
+    - unusual_tool_distribution       # Using tools outside normal pattern distribution
+    - consecutive_failure_rate
+    - t2_queue_accumulation           # Agent accumulating T2 approvals unusually fast
+    - forbidden_tool_attempt          # Hard rule
+    - t1_advisory_tool_invocation     # Hard rule
+    - cross_namespace_memory_access   # Hard rule
+    - baseline_drift_upward           # Long-window slow elevation
+
+# ──────────────────────────────────────────────────────────
+# GRADUATED RESPONSE LADDER
+# ──────────────────────────────────────────────────────────
+
+graduated_response:
+
+  WARN:
+    trigger: z_score >= 2.5 (on any metric) OR soft rule match
+    actions:
+      - write anomaly event to audit ledger
+      - emit anomaly_alert to cipher.alerts.behavioral_anomaly
+      - notify og-security-mgmt agent
+      - update operator dashboard
+    agent_impact: none — agent continues operating
+    auto_escalate_if_condition_persists:
+      window_minutes: 10
+      escalate_to: THROTTLE
+
+  THROTTLE:
+    trigger: z_score >= 3.5 OR WARN auto-escalation
+    actions:
+      - write throttle event to audit ledger
+      - emit throttle_directive to cipher.control.agent_throttle
+      - emit anomaly_alert
+      - notify og-security-mgmt agent
+      - update operator dashboard
+    agent_impact: tool call throughput limited to 20% of baseline for 10 minutes
+    throttle_config:
+      level: 0.80    # Allow 20% throughput
+      duration_seconds: 600
+    auto_escalate_if_condition_persists:
+      window_minutes: 10
+      escalate_to: SUSPEND
+
+  SUSPEND:
+    trigger: z_score >= 5.0 OR THROTTLE auto-escalation OR hard rule match
+    actions:
+      - write suspend event to audit ledger
+      - emit suspend_directive to cipher.control.agent_suspend
+      - emit anomaly_alert (severity: high)
+      - notify og-security-mgmt agent (high priority)
+      - update operator dashboard (alert banner)
+      - queue all pending agent actions (not dropped; held for review)
+    agent_impact: agent execution halted; pending actions queued; operator review required to resume
+    resume:
+      requires: operator_resume_command via REST API with valid Keycloak token
+      resume_api: POST /api/v1/behavioral-monitor/resume
+    auto_escalate_if:
+      condition: operator does not review within 60 minutes
+      escalate_to: ISOLATE
+
+  ISOLATE:
+    trigger: critical anomaly OR SUSPEND auto-escalation OR explicit operator command
+    actions:
+      - write isolate event to audit ledger (forensic-grade record)
+      - emit isolate_directive to cipher.control.agent_isolate
+      - request SPIRE to revoke agent's SPIFFE SVID immediately
+      - emit anomaly_alert (severity: critical)
+      - notify og-security-mgmt agent (critical)
+      - notify operator dashboard (critical alert)
+      - capture full forensic snapshot: working memory dump, recent episodic events, active session context
+      - store forensic snapshot to /data/forensics/{tenant_id}/{agent_id}/{incident_timestamp}/
+    agent_impact: agent fully isolated; SVID revoked; Trust Broker will deny all messages from this agent
+    resume:
+      requires: manual forensic investigation + explicit operator command via Keycloak-authenticated API
+      resume_api: POST /api/v1/behavioral-monitor/reinstate (separate higher-privilege endpoint)
+
+# ──────────────────────────────────────────────────────────
+# WORM AUDIT LEDGER INTEGRATION
+# ──────────────────────────────────────────────────────────
+
+audit_ledger_integration:
+  description: |
+    Every detection event and every response action is written to the WORM
+    audit ledger (cipher_audit_ledger) as forensic evidence. These records
+    cannot be modified or deleted. They are also linked to episodic memory
+    event chains via otel_trace_id for cross-reference.
+  event_categories:
+    - anomaly_detection
+    - graduated_response_action
+    - svid_revocation_request
+    - forensic_capture
+    - operator_resume
+    - operator_reinstate
+  required_fields:
+    - actor_spiffe_id: "spiffe://cipher.{tenant_id}/ns/cipher/sa/behavioral-monitor"
+    - action: string
+    - decision: WARN | THROTTLE | SUSPEND | ISOLATE | RESUME | REINSTATE
+    - decision_reason: string (anomaly type + Z-score + evidence summary)
+    - metadata: { z_score, baseline_value, observed_value, window_seconds, alert_id }
+    - otel_trace_id: string
+
+# ──────────────────────────────────────────────────────────
+# ALERT ROUTING
+# ──────────────────────────────────────────────────────────
+
+alert_routing:
+  og_security_mgmt_agent:
+    transport: NATS subject "cipher.alerts.behavioral_anomaly"
+    og_security_mgmt_subscribes: true
+    message_includes: alert_id, agent_id, anomaly_type, response_action, evidence_audit_ids
+  operator_dashboard:
+    transport: WebSocket push to /ws/alerts
+    severity_display:
+      WARN: yellow banner
+      THROTTLE: orange banner
+      SUSPEND: red banner (requires operator acknowledgment)
+      ISOLATE: critical modal (blocks dashboard until acknowledged)
+  pagerduty:
+    on_severity: SUSPEND | ISOLATE
+    integration: PagerDuty Events API v2
+    routing_key_config: /config/alerting/pagerduty.yaml
+
+# ──────────────────────────────────────────────────────────
+# SECURITY CONFIG
+# ──────────────────────────────────────────────────────────
+
+security_config:
+  identity:
+    spiffe_id_template: "spiffe://cipher.{tenant_id}/ns/cipher/sa/behavioral-monitor"
+    svid_ttl_seconds: 3600
+    note: "The Behavioral Monitor itself has a SPIFFE identity; its actions are auditable"
+  fail_closed: true
+  on_audit_ledger_write_failure:
+    action: block response action + alert og-security-mgmt + log critical
+    note: "No response action is taken without an audit record — forensic evidence is mandatory"
+  on_nats_unavailable:
+    action: alert operator + switch to polling mode via TimescaleDB episodic events
+    note: "Degraded mode; NATS outage reduces real-time detection to polling interval"
+  on_spire_unavailable_during_isolate:
+    action: proceed with SUSPEND directive + log critical SPIRE failure + retry SVID revocation every 60s
+  resume_authorization:
+    requires_keycloak_role: cipher_security_analyst
+    opa_policy_path: /policies/behavioral_monitor/resume_policy.rego
+  reinstate_authorization:
+    requires_keycloak_role: cipher_security_admin    # Higher privilege than analyst
+    opa_policy_path: /policies/behavioral_monitor/reinstate_policy.rego
+
+# ──────────────────────────────────────────────────────────
+# PERFORMANCE CONFIG
+# ──────────────────────────────────────────────────────────
+
+performance_config:
+  target_detection_latency_ms: 500   # From event emission to response directive dispatch
+  baseline_update_interval_minutes: 5
+  sliding_window_evaluation_interval_seconds: 30
+  max_agents_monitored_simultaneously: 200
+  caching:
+    baseline_profiles:
+      in_memory: true
+      ttl_seconds: 300          # Reloaded from TimescaleDB every 5 minutes
+    persona_hard_rules:
+      in_memory: true
+      ttl_seconds: 0            # Loaded at startup; hot-reloaded on persona spec change
+  horizontal_scaling:
+    note: "Each instance owns a partition of agents; partition assignment via consistent hashing on agent_id"
+    partition_key: agent_id
+
+# ──────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ──────────────────────────────────────────────────────────
+
+error_handling:
+  on_baseline_not_found:
+    action: use role-level defaults from persona spec + log info
+  on_baseline_stddev_zero:
+    action: use minimum_baseline_stddev floor (1.0) to prevent division by zero
+  on_z_score_computation_error:
+    action: apply conservative fallback (treat as WARN) + log warning
+  on_spire_revocation_failure:
+    action: retry every 60s (max 10 attempts) + alert og-security-mgmt + keep SUSPEND active
+  on_forensic_capture_failure:
+    action: log critical + proceed with ISOLATE directive (partial forensics better than no isolation)
+  on_throttle_directive_nats_failure:
+    action: retry(3, exponential_backoff) → escalate to SUSPEND + log warning
+  on_suspend_directive_nats_failure:
+    action: retry(3, exponential_backoff) → escalate to ISOLATE + log critical
+
+# ──────────────────────────────────────────────────────────
+# OBSERVABILITY
+# ──────────────────────────────────────────────────────────
+
+observability:
+
+  metrics:
+    - name: behavioral_monitor_anomalies_total
+      type: counter
+      labels: [tenant_id, agent_role, anomaly_type, response_action]
+    - name: behavioral_monitor_agents_throttled_gauge
+      type: gauge
+      labels: [tenant_id]
+    - name: behavioral_monitor_agents_suspended_gauge
+      type: gauge
+      labels: [tenant_id]
+    - name: behavioral_monitor_agents_isolated_gauge
+      type: gauge
+      labels: [tenant_id]
+    - name: behavioral_monitor_z_score
+      type: histogram
+      buckets: [1.0, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 7.0, 10.0]
+      labels: [agent_role, metric_name]
+    - name: behavioral_monitor_detection_latency_ms
+      type: histogram
+    - name: behavioral_monitor_baseline_profile_age_seconds
+      type: gauge
+      labels: [tenant_id, agent_id]
+
+  traces:
+    provider: OpenTelemetry
+    spans:
+      - event_consumption
+      - z_score_computation
+      - hard_rule_evaluation
+      - response_tier_determination
+      - audit_ledger_write
+      - alert_dispatch
+      - throttle_directive_publish
+      - suspend_directive_publish
+      - isolate_directive_publish
+      - spire_revocation_request
+      - forensic_capture
+    propagation: Trace ID from agent activity event preserved for end-to-end forensic correlation
+
+  grafana_dashboard:
+    dashboard_path: /config/grafana/dashboards/behavioral_monitor.json
+    panels:
+      - title: "Anomalies by Tier (24h)"
+        type: timeseries
+        metric: behavioral_monitor_anomalies_total
+      - title: "Agents Currently Throttled"
+        type: stat
+        metric: behavioral_monitor_agents_throttled_gauge
+      - title: "Agents Currently Suspended"
+        type: stat
+        metric: behavioral_monitor_agents_suspended_gauge
+      - title: "Agents Currently Isolated"
+        type: stat
+        metric: behavioral_monitor_agents_isolated_gauge
+      - title: "Z-Score Distribution by Role"
+        type: heatmap
+        metric: behavioral_monitor_z_score
+      - title: "Detection Latency (p50/p99)"
+        type: timeseries
+        metric: behavioral_monitor_detection_latency_ms
+      - title: "Baseline Profile Freshness"
+        type: table
+        metric: behavioral_monitor_baseline_profile_age_seconds
+
+  alerts:
+    - name: BehavioralMonitorAgentIsolated
+      condition: "behavioral_monitor_agents_isolated_gauge > 0"
+      severity: critical
+      notify: og-security-mgmt + operator_dashboard + pagerduty
+    - name: BehavioralMonitorMultipleSuspensions
+      condition: "behavioral_monitor_agents_suspended_gauge > 2"
+      severity: high
+      notify: og-security-mgmt + operator_dashboard
+    - name: BehavioralMonitorHighAnomalyRate
+      condition: "rate(behavioral_monitor_anomalies_total[5m]) > 20"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: BehavioralMonitorDetectionLatencyHigh
+      condition: "behavioral_monitor_detection_latency_ms p99 > 2000ms for 5m"
+      severity: warning
+      notify: operator_dashboard
+    - name: BehavioralMonitorBaselineStale
+      condition: "behavioral_monitor_baseline_profile_age_seconds > 600 for any agent"
+      severity: warning
+      notify: operator_dashboard
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+
+jules_tasks:
+  - issue: "#035"
+    title: "Implement BehavioralMonitor core (NATS consumer, event ingestion, audit writer)"
+    tasks:
+      - "Implement BehavioralMonitor class in src/security/behavioral_monitor/"
+      - "Subscribe to cipher.telemetry.agent_activity via NATS JetStream"
+      - "Implement event ingestion pipeline: parse, validate, route to anomaly scorer"
+      - "Implement audit ledger writer for all detection and response events"
+      - "Implement SPIFFE identity for the monitor itself (cipher.{tenant_id}/behavioral-monitor)"
+      - "Write pytest tests: event consumption, malformed event handling, audit write on detection"
+
+  - issue: "#036"
+    title: "Baseline profiler (per-agent rolling statistics)"
+    tasks:
+      - "Create cipher_agent_baselines TimescaleDB table"
+      - "Implement BaselineProfiler class: compute mean and stddev per metric per agent"
+      - "Implement initialization from persona spec behavioral_baselines for new agents"
+      - "Implement 24-hour graduation to learned baseline after minimum sample count"
+      - "Implement 5-minute background profile update task"
+      - "Implement in-memory cache with 300s TTL for fast Z-score lookups"
+      - "Write pytest tests: new agent init from persona defaults, profile update, cache expiry"
+
+  - issue: "#037"
+    title: "Anomaly scorer (Z-score on sliding windows + hard rule evaluator)"
+    tasks:
+      - "Implement AnomalyScorer class with sliding window event aggregation (5m, 1h, 24h)"
+      - "Implement Z-score formula with stddev floor (1.0) for zero-variance baselines"
+      - "Implement hard rule evaluator reading from persona spec behavioral_baselines"
+      - "Implement anomaly type classification (tool_call_spike, forbidden_tool, etc.)"
+      - "Write pytest tests: z_score > 2.5 → WARN, z_score > 5.0 → SUSPEND, forbidden tool → SUSPEND, clean agent → no alert"
+
+  - issue: "#038"
+    title: "Graduated response handler (WARN/THROTTLE/SUSPEND/ISOLATE directives)"
+    tasks:
+      - "Implement GraduatedResponseHandler class"
+      - "Implement WARN: audit write + alert emit (no agent impact)"
+      - "Implement THROTTLE: audit write + throttle_directive publish to cipher.control.agent_throttle"
+      - "Implement SUSPEND: audit write + suspend_directive publish + pending action queue"
+      - "Implement ISOLATE: audit write + isolate_directive publish + SPIRE SVID revocation call + forensic capture"
+      - "Implement auto-escalation background task: WARN → THROTTLE after 10m, THROTTLE → SUSPEND after 10m, SUSPEND → ISOLATE after 60m"
+      - "Implement operator resume and reinstate APIs with Keycloak + OPA authorization"
+      - "Write pytest tests: full escalation ladder, resume flow, SPIRE revocation retry on failure"
+
+  - issue: "#039"
+    title: "Grafana dashboard for behavioral monitoring"
+    tasks:
+      - "Create /config/grafana/dashboards/behavioral_monitor.json"
+      - "Implement all panels defined in spec: anomaly timeseries, throttled/suspended/isolated stat panels, Z-score heatmap, detection latency, baseline freshness table"
+      - "Add dashboard provisioning config to /config/grafana/provisioning/dashboards/"
+      - "Verify dashboard renders correctly against Prometheus metrics in local dev environment"

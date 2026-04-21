@@ -1,0 +1,449 @@
+# CIPHER Orchestration Spec — Autonomy Gate Engine
+# Component: autonomy_gate
+# Plane: Orchestration
+
+id: autonomy-gate
+component: AutonomyGateEngine
+location: src/orchestration/autonomy_gate/
+version: "0.1"
+
+description: |
+  The Autonomy Gate Engine is the mandatory pre-execution checkpoint for every
+  proposed agent action in the CIPHER platform. No agent action reaches execution
+  without passing through the Autonomy Gate.
+
+  The engine applies three-tier autonomy logic:
+
+    T3 — Autonomous execution:
+      Condition: confidence_score >= 0.92 AND risk_score <= LOW (0.0–0.35)
+      Action: approve and forward to execution immediately
+
+    T2 — Human-in-the-loop (HITL):
+      Condition: confidence_score < 0.92 OR risk_score == MEDIUM (0.36–0.70)
+      Action: queue for human approval; block execution until approved or timeout
+
+    T1 — Advisory only:
+      Condition: risk_score == HIGH (0.71–1.0) OR action in T1_advisory_list
+      Action: surface recommendation to operator; no execution path exists
+
+  Every gate decision — including the risk score, confidence score, tier assignment,
+  and outcome — is written to the WORM audit ledger.
+
+component_type: orchestration_gate
+
+# ──────────────────────────────────────────────────────────
+# RESPONSIBILITIES
+# ──────────────────────────────────────────────────────────
+
+responsibilities:
+  - Receive proposed agent actions from agent executor via NATS
+  - Score each action for risk (0.0–1.0) using the risk scoring model
+  - Read agent output confidence score from the action payload
+  - Assign autonomy tier (T1 / T2 / T3) based on risk + confidence thresholds
+  - T3 actions: approve immediately and forward to execution
+  - T2 actions: enqueue in human approval queue; block until approved or timed out
+  - T1 actions: return advisory-only response; no execution forwarded
+  - Handle T2 timeout (default 15 min): escalate to og-security-mgmt
+  - Record every gate decision to the audit ledger (WORM)
+  - Expose override capability to authorized operators with mandatory audit trail
+
+# ──────────────────────────────────────────────────────────
+# INTERFACES
+# ──────────────────────────────────────────────────────────
+
+interfaces:
+
+  inputs:
+    proposed_action:
+      transport: NATS JetStream subject "cipher.autonomy_gate.inbound"
+      schema:
+        action_id: uuid
+        request_id: uuid                  # Originating Intent Router request
+        tenant_id: string
+        agent_id: string
+        agent_spiffe_id: string
+        agent_role: string                # NICE work role persona (e.g., pd-ir)
+        action_type: string               # e.g., endpoint_isolate_recommend
+        action_params: object             # Structured parameters for the action
+        agent_confidence_score: float     # 0.0–1.0; provided by agent in output schema
+        session_id: uuid
+        incident_id: string | null
+        timestamp: iso8601
+
+    human_approval_response:
+      transport: REST POST /api/v1/autonomy-gate/approve
+      schema:
+        action_id: uuid
+        approver_id: string
+        approver_keycloak_token: string
+        decision: approve | deny
+        decision_rationale: string
+        timestamp: iso8601
+
+    operator_override:
+      transport: REST POST /api/v1/autonomy-gate/override
+      schema:
+        action_id: uuid
+        override_operator_id: string
+        override_keycloak_token: string
+        override_to_tier: T2 | T3        # Can only override down (T1→T2 or T2→T3), not up
+        override_rationale: string
+        timestamp: iso8601
+
+  outputs:
+    approved_action:
+      transport: NATS JetStream subject "cipher.execution.inbound"
+      schema:
+        action_id: uuid
+        approved_tier: T2 | T3
+        approved_by: system | operator_id
+        approval_token: string            # Short-lived signed token for executor validation
+        original_proposed_action: object
+        gate_decision_id: uuid
+        timestamp: iso8601
+
+    advisory_response:
+      transport: NATS JetStream subject "cipher.orchestrator.advisory"
+      schema:
+        action_id: uuid
+        tier: T1
+        advisory_text: string
+        agent_recommendation: object
+        gate_decision_id: uuid
+        timestamp: iso8601
+
+    approval_request:
+      transport: NATS JetStream subject "cipher.hitl.approval_queue"
+      schema:
+        action_id: uuid
+        tenant_id: string
+        agent_id: string
+        action_type: string
+        action_params: object
+        risk_score: float
+        risk_level: LOW | MEDIUM | HIGH
+        confidence_score: float
+        assigned_tier: T2
+        approval_deadline: iso8601       # now + timeout_minutes
+        approval_ui_url: string
+        approval_webhook_url: string
+        gate_decision_id: uuid
+        timestamp: iso8601
+
+    denial_response:
+      transport: NATS JetStream subject "cipher.autonomy_gate.denied"
+      schema:
+        action_id: uuid
+        denial_reason: string
+        denial_category: tier1_advisory | human_denied | timeout_expired | policy_blocked
+        gate_decision_id: uuid
+        timestamp: iso8601
+
+# ──────────────────────────────────────────────────────────
+# TIER LOGIC
+# ──────────────────────────────────────────────────────────
+
+tier_logic:
+
+  thresholds:
+    t3_autonomous:
+      min_confidence_score: 0.92
+      max_risk_score: 0.35              # LOW risk ceiling
+    t2_human_approval:
+      confidence_score_range: [0.0, 0.92)   # Exclusive upper bound
+      risk_score_range: [0.36, 0.70]        # MEDIUM risk
+    t1_advisory_only:
+      min_risk_score: 0.71              # HIGH risk floor
+      # Also: any action type explicitly listed in T1 advisory list for the agent persona
+
+  risk_levels:
+    LOW:  [0.0, 0.35]
+    MEDIUM: [0.36, 0.70]
+    HIGH: [0.71, 1.0]
+
+  precedence: |
+    1. If action_type is in persona's T1_advisory_only list → T1 (regardless of scores)
+    2. If risk_score >= 0.71 → T1
+    3. If risk_score in [0.36, 0.70] → T2 (regardless of confidence)
+    4. If risk_score <= 0.35 AND confidence_score >= 0.92 → T3
+    5. If risk_score <= 0.35 AND confidence_score < 0.92 → T2
+
+# ──────────────────────────────────────────────────────────
+# RISK SCORING
+# ──────────────────────────────────────────────────────────
+
+risk_scoring:
+  model:
+    type: gradient boosted classifier (XGBoost)
+    input_features:
+      - action_type                    # Categorical: type of action requested
+      - action_params_schema           # Param types and cardinality (not values)
+      - agent_role                     # Source persona risk profile
+      - target_asset_criticality       # From org_assets semantic memory (0.0–1.0)
+      - blast_radius_estimate          # Number of affected systems/users
+      - reversibility                  # reversible | partially_reversible | irreversible
+      - time_of_day_risk               # Business hours vs. after-hours
+      - incident_severity              # P1–P4 if active incident context
+    output:
+      risk_score: float                # 0.0–1.0
+      risk_level: LOW | MEDIUM | HIGH
+      risk_factors: list[string]       # Human-readable explanations of top factors
+    model_path: /models/risk_scorer/
+    fallback: rule_based_scorer        # If ML model unavailable → deterministic rules
+    rule_based_fallback_path: /config/risk_rules/default_risk_rules.yaml
+
+  asset_criticality_lookup:
+    source: MemoryManager.semantic (org_assets collection)
+    cache_ttl_seconds: 300
+
+# ──────────────────────────────────────────────────────────
+# HUMAN APPROVAL QUEUE (HITL)
+# ──────────────────────────────────────────────────────────
+
+hitl:
+  queue_backend: PostgreSQL table cipher_approval_queue
+  queue_schema:
+    - action_id: uuid PRIMARY KEY
+    - tenant_id: text NOT NULL
+    - gate_decision_id: uuid NOT NULL
+    - approval_status: pending | approved | denied | timed_out | escalated
+    - assigned_approver_id: text          # Null until claimed
+    - approval_deadline: timestamptz NOT NULL
+    - created_at: timestamptz NOT NULL
+    - resolved_at: timestamptz
+    - resolution_by: operator_id | system_timeout | escalation
+
+  approval_api:
+    endpoint_approve: POST /api/v1/autonomy-gate/approve
+    endpoint_deny: POST /api/v1/autonomy-gate/deny
+    endpoint_list_pending: GET /api/v1/autonomy-gate/pending
+    endpoint_get_action: GET /api/v1/autonomy-gate/action/{action_id}
+    authentication: Keycloak bearer token (requires approver role)
+    authorization: OPA policy /policies/hitl/approver_rbac.rego
+
+  webhook:
+    outbound_notification: POST to operator-configured webhook URL on new T2 action
+    payload:
+      action_id: uuid
+      tenant_id: string
+      action_type: string
+      risk_summary: string
+      approval_url: string
+      deadline: iso8601
+    retry_policy: 3 attempts, exponential backoff, dead-letter on failure
+
+  ui_integration:
+    approval_ui_base_url: /ui/approvals/
+    deep_link: /ui/approvals/{action_id}
+
+  timeout:
+    default_minutes: 15
+    configurable_per_action_type: true   # Override in /config/hitl/timeout_overrides.yaml
+    on_timeout: escalate                 # → escalation flow below
+
+  escalation:
+    on_timeout_action: notify og-security-mgmt + re-queue with HIGH priority flag
+    max_escalations: 3
+    on_max_escalations_exceeded: auto_deny + alert_operator + log_critical
+
+# ──────────────────────────────────────────────────────────
+# SECURITY CONFIG
+# ──────────────────────────────────────────────────────────
+
+security_config:
+  fail_closed: true
+  on_risk_model_unavailable: use rule_based_fallback; log warning
+  on_rule_based_fallback_unavailable: deny_all + alert_operator
+  on_audit_ledger_write_failure: block approval dispatch + alert_operator  # Never approve without audit record
+  override_controls:
+    requires_operator_role: cipher_gate_override
+    requires_opa_approval: true
+    override_policy_path: /policies/hitl/override_policy.rego
+    audit_every_override: true        # Override events written to audit ledger with full context
+    cannot_override_t1_to_t3_directly: true  # Must go T1 → T2 in separate step
+  approval_token:
+    algorithm: HMAC-SHA256
+    ttl_seconds: 300                  # Executor must use token within 5 minutes
+    signed_fields: [action_id, gate_decision_id, approved_tier, tenant_id]
+  audit_logging:
+    every_gate_decision: true
+    every_override: true
+    every_timeout: true
+    log_fields:
+      - action_id
+      - gate_decision_id
+      - tenant_id
+      - agent_id
+      - action_type
+      - risk_score
+      - risk_level
+      - confidence_score
+      - assigned_tier
+      - outcome             # approved | denied | advisory | timed_out | escalated | overridden
+      - approver_id         # null for T3 auto-approvals
+      - latency_ms
+      - otel_trace_id
+    destination: cipher_audit_ledger  # WORM append-only
+
+# ──────────────────────────────────────────────────────────
+# PERFORMANCE CONFIG
+# ──────────────────────────────────────────────────────────
+
+performance_config:
+  target_p99_latency_ms_t3: 100    # T3 path: risk score + decision + audit write
+  target_p99_latency_ms_t2: 500    # T2 path: risk score + queue write + webhook notify
+  target_p99_latency_ms_t1: 50     # T1 path: tier check + advisory response
+  caching:
+    asset_criticality:
+      ttl_seconds: 300
+    risk_model_predictions:
+      ttl_seconds: 60
+      key: "{action_type}:{hash(action_params_schema)}:{target_asset_id}"
+  horizontal_scaling: true
+  max_concurrent_evaluations: 500
+
+# ──────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ──────────────────────────────────────────────────────────
+
+error_handling:
+  on_risk_model_error:
+    action: use rule-based fallback scorer + log warning
+  on_rule_based_fallback_error:
+    action: deny action + alert_operator + log critical
+  on_audit_ledger_write_failure:
+    action: block action approval + alert_operator + log critical
+    note: "Audit record is a pre-condition for approval; no approval without audit"
+  on_hitl_queue_write_failure:
+    action: retry(3, exponential_backoff) → deny + alert_operator
+  on_webhook_delivery_failure:
+    action: retry(3, exponential_backoff) → dead_letter_queue + log warning
+  on_approval_token_expired:
+    action: executor must re-request gate evaluation
+  on_t2_timeout:
+    action: escalate to og-security-mgmt + re-queue with HIGH priority
+  on_nats_publish_failure:
+    action: retry(3, backoff=exponential) → dead_letter_queue + alert_operator
+
+# ──────────────────────────────────────────────────────────
+# OBSERVABILITY
+# ──────────────────────────────────────────────────────────
+
+observability:
+
+  metrics:
+    - name: autonomy_gate_decisions_total
+      type: counter
+      labels: [tenant_id, agent_role, assigned_tier, outcome]
+    - name: autonomy_gate_risk_score
+      type: histogram
+      buckets: [0.1, 0.2, 0.35, 0.5, 0.70, 0.85, 1.0]
+      labels: [agent_role, action_type]
+    - name: autonomy_gate_confidence_score
+      type: histogram
+      buckets: [0.5, 0.70, 0.80, 0.92, 0.95, 1.0]
+    - name: autonomy_gate_t2_queue_depth
+      type: gauge
+      labels: [tenant_id]
+    - name: autonomy_gate_t2_approval_latency_seconds
+      type: histogram
+      labels: [tenant_id, outcome]
+    - name: autonomy_gate_timeouts_total
+      type: counter
+      labels: [tenant_id, action_type]
+    - name: autonomy_gate_overrides_total
+      type: counter
+      labels: [tenant_id, operator_id, override_direction]
+    - name: autonomy_gate_evaluation_latency_ms
+      type: histogram
+      labels: [assigned_tier]
+
+  traces:
+    provider: OpenTelemetry
+    spans:
+      - risk_score_model_inference
+      - rule_based_fallback_evaluation
+      - tier_assignment
+      - audit_ledger_write
+      - hitl_queue_write
+      - webhook_dispatch
+      - approval_token_issue
+      - nats_publish
+    propagation: W3C TraceContext; trace_id from Intent Router preserved end-to-end
+
+  alerts:
+    - name: AutonomyGateT2QueueBacklog
+      condition: "autonomy_gate_t2_queue_depth > 50 for 5m"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: AutonomyGateHighTimeoutRate
+      condition: "rate(autonomy_gate_timeouts_total[15m]) > 5"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: AutonomyGateRiskModelDown
+      condition: "risk_model_fallback_active == true for 5m"
+      severity: warning
+      notify: operator_dashboard
+    - name: AutonomyGateAuditWriteFailure
+      condition: "audit_ledger_write_failure_total > 0"
+      severity: critical
+      notify: og-security-mgmt + operator_dashboard + pagerduty
+    - name: AutonomyGateHighOverrideRate
+      condition: "rate(autonomy_gate_overrides_total[60m]) > 10"
+      severity: warning
+      notify: og-security-mgmt
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+
+jules_tasks:
+  - issue: "#025"
+    title: "Implement AutonomyGateEngine core (tier logic, NATS consumer/publisher, audit writer)"
+    tasks:
+      - "Implement AutonomyGateEngine class in src/orchestration/autonomy_gate/"
+      - "Subscribe to cipher.autonomy_gate.inbound via NATS JetStream"
+      - "Implement tier assignment logic following precedence rules in spec"
+      - "T3: issue approval token + publish to cipher.execution.inbound + audit write"
+      - "T2: write to HITL queue + dispatch webhook + publish approval_request to cipher.hitl.approval_queue + audit write"
+      - "T1: publish advisory_response to cipher.orchestrator.advisory + audit write"
+      - "Audit ledger write is mandatory pre-condition for all approval dispatches; block on failure"
+      - "Write pytest tests: T3 path (conf>=0.92, risk LOW), T2 path, T1 path, T1 list override"
+
+  - issue: "#026"
+    title: "Risk scoring model implementation"
+    tasks:
+      - "Implement RiskScorer class wrapping XGBoost model"
+      - "Define feature extraction pipeline from action payload"
+      - "Integrate asset criticality lookup via MemoryManager.semantic (org_assets)"
+      - "Implement rule-based fallback scorer reading from /config/risk_rules/default_risk_rules.yaml"
+      - "Write default_risk_rules.yaml with conservative (high) risk defaults for unknown action types"
+      - "Implement model hot-swap reload without service restart"
+      - "Write pytest tests: score range validation (0.0–1.0), fallback activation, reversibility factor"
+
+  - issue: "#027"
+    title: "Human approval queue API and HITL workflow"
+    tasks:
+      - "Implement PostgreSQL queue backend (cipher_approval_queue table)"
+      - "Implement REST API endpoints: approve, deny, list_pending, get_action"
+      - "Implement Keycloak token validation + OPA approver RBAC policy"
+      - "Implement webhook dispatcher with retry policy (3 attempts, exponential backoff)"
+      - "Implement approval token issuance (HMAC-SHA256, 300s TTL)"
+      - "Write pytest tests: full approval flow, denial flow, unauthorized approver rejection"
+
+  - issue: "#028"
+    title: "T2 timeout escalation handler"
+    tasks:
+      - "Implement background task scanning cipher_approval_queue for expired deadlines"
+      - "On timeout: update queue status to timed_out, emit escalation notification to og-security-mgmt"
+      - "Re-queue with HIGH priority flag; track escalation count"
+      - "On max_escalations_exceeded: auto_deny + alert_operator + write critical audit event"
+      - "Write pytest tests: timeout triggers escalation, max escalation → auto deny"
+
+  - issue: "#029"
+    title: "Override audit trail implementation"
+    tasks:
+      - "Implement operator override endpoint with OPA policy gate"
+      - "Enforce T1→T2 or T2→T3 step-down only (no T1→T3 direct)"
+      - "Write override audit event to audit ledger with full operator context"
+      - "Write pytest tests: valid override → audit record, T1→T3 direct → reject, unauthorized operator → reject"

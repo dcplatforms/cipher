@@ -1,0 +1,360 @@
+# CIPHER Orchestration Spec — Intent Router
+# Component: intent_router
+# Plane: Orchestration
+
+id: intent-router
+component: IntentRouter
+location: src/orchestration/intent_router/
+version: "0.1"
+
+description: |
+  Entry point for all user and operator requests entering the CIPHER platform.
+  The Intent Router is the first component to receive a raw request and is
+  responsible for:
+
+  1. Parsing and classifying operator intent via NLP classification
+  2. Mapping the classified intent to the appropriate NICE work role persona(s)
+  3. Pre-checking operator authorization via Keycloak RBAC + OPA policy evaluation
+  4. Routing the authorized request to a single agent or a multi-agent workflow
+  5. Logging every routing decision to the audit ledger (WORM, append-only)
+
+  The Intent Router NEVER executes agent actions itself. Once routing is decided,
+  the request is handed off to the Autonomy Gate Engine for pre-execution evaluation.
+
+component_type: orchestration_router
+
+# ──────────────────────────────────────────────────────────
+# RESPONSIBILITIES
+# ──────────────────────────────────────────────────────────
+
+responsibilities:
+  - Parse natural-language and structured operator requests
+  - Run NLP intent classification to determine request category and sub-intent
+  - Resolve the target NICE work role persona(s) from the routing table
+  - Pre-check caller RBAC via Keycloak token validation + OPA policy evaluation
+  - Determine single-agent vs. multi-agent workflow routing
+  - Pass the enriched routing envelope to the Autonomy Gate
+  - Log every routing decision (including denials) to the audit ledger
+  - Handle fallback routing for low-confidence or unknown intents
+
+# ──────────────────────────────────────────────────────────
+# INTERFACES
+# ──────────────────────────────────────────────────────────
+
+interfaces:
+
+  inputs:
+    operator_request:
+      transport: NATS JetStream subject "cipher.requests.inbound"
+      schema:
+        request_id: uuid
+        tenant_id: string
+        operator_id: string
+        operator_keycloak_token: string        # JWT bearer token
+        request_text: string                   # Natural-language or structured payload
+        request_source: cli | api | dashboard  # Origin surface
+        session_id: uuid
+        timestamp: iso8601
+      validation:
+        - keycloak_token_not_expired
+        - tenant_id_matches_token_claims
+        - request_text_max_length: 8192        # Characters; longer payloads rejected
+
+  outputs:
+    routing_envelope:
+      transport: NATS JetStream subject "cipher.autonomy_gate.inbound"
+      schema:
+        request_id: uuid
+        tenant_id: string
+        operator_id: string
+        operator_roles: list[string]           # Resolved Keycloak roles
+        classified_intent: IntentClassification
+        target_persona: string                 # e.g., pd-ir, pd-defensive
+        workflow_type: single_agent | multi_agent
+        workflow_plan: list[WorkflowStep] | null  # Populated only for multi-agent
+        authorization_token: string            # Short-lived token signed by IntentRouter
+        original_request_id: uuid
+        timestamp: iso8601
+
+    denial_response:
+      transport: NATS JetStream subject "cipher.requests.denied"
+      schema:
+        request_id: uuid
+        denial_reason: string
+        denial_category: auth_failure | low_confidence | no_route | rate_limited
+        timestamp: iso8601
+
+# ──────────────────────────────────────────────────────────
+# INTENT CLASSIFICATION
+# ──────────────────────────────────────────────────────────
+
+intent_classification:
+  model:
+    type: fine-tuned transformer classifier
+    base_model: sentence-transformers/all-MiniLM-L6-v2
+    fine_tune_dataset: /data/training/intent_classification/
+    output: IntentClassification
+  inference:
+    provider: litellm  # Model-agnostic via LiteLLM for fallback LLM-based classification
+    temperature: 0.0   # Deterministic classification
+    max_tokens: 256
+  confidence_threshold:
+    route: 0.75        # Below this → fallback_handling
+    low_confidence_alert: 0.60
+
+  IntentClassification:
+    fields:
+      - primary_intent: string       # e.g., incident_response, threat_hunt, vulnerability_scan
+      - sub_intent: string           # e.g., isolate_endpoint, query_siem, generate_report
+      - confidence_score: float      # 0.0–1.0
+      - entities_extracted: object   # Named entities from the request (asset IDs, IOCs, etc.)
+      - suggested_persona: string    # Model's top suggestion; may differ from routing table output
+
+# ──────────────────────────────────────────────────────────
+# ROUTING TABLE
+# ──────────────────────────────────────────────────────────
+
+routing_table:
+  source: /config/routing/intent_routing_table.yaml
+  format: |
+    Each entry maps (primary_intent, sub_intent) → target persona and workflow type.
+    Entries are loaded at startup and hot-reloaded on file change without restart.
+  hot_reload: true
+
+  example_entries:
+    - primary_intent: incident_response
+      sub_intent: "*"
+      target_persona: pd-ir
+      workflow_type: single_agent
+
+    - primary_intent: threat_hunt
+      sub_intent: "*"
+      target_persona: pd-threat
+      workflow_type: single_agent
+
+    - primary_intent: vulnerability_management
+      sub_intent: scan
+      target_persona: pd-vuln
+      workflow_type: single_agent
+
+    - primary_intent: full_incident_lifecycle
+      sub_intent: "*"
+      target_persona: null
+      workflow_type: multi_agent
+      workflow_plan_template: /config/workflows/full_incident_lifecycle.yaml
+
+  fallback:
+    on_no_match: route_to_og-security-mgmt + log_warning
+    on_low_confidence: present_clarification_request_to_operator
+
+# ──────────────────────────────────────────────────────────
+# AUTHORIZATION (RBAC + OPA)
+# ──────────────────────────────────────────────────────────
+
+authorization:
+  identity_provider: Keycloak
+  token_validation:
+    steps:
+      - verify_jwt_signature_against_keycloak_jwks
+      - check_token_expiry
+      - verify_tenant_id_claim_matches_request
+      - extract_roles_from_token_claims
+  policy_engine: OPA (Open Policy Agent)
+  policy_path: /policies/operator_routing/
+  evaluation_input:
+    operator_id: string
+    operator_roles: list[string]
+    classified_intent: IntentClassification
+    target_persona: string
+    tenant_id: string
+  decision_fields:
+    allow: bool
+    reason: string
+    required_role_for_action: string | null
+  fail_closed: true   # If Keycloak or OPA unreachable → deny all, alert operator
+
+# ──────────────────────────────────────────────────────────
+# SECURITY CONFIG
+# ──────────────────────────────────────────────────────────
+
+security_config:
+  fail_closed: true
+  on_keycloak_unavailable: deny_all + alert_operator
+  on_opa_unavailable: deny_all + alert_operator
+  rate_limiting:
+    per_operator_requests_per_minute: 60
+    per_tenant_requests_per_minute: 500
+    burst_allowance: 20
+    on_limit_exceeded: deny + log + alert_operator
+  input_forwarding:
+    all_request_text_passes_through: InputGuard   # Input Guard sanitizes before classification
+    input_guard_subject: "cipher.input_guard.inbound"
+  audit_logging:
+    every_routing_decision: true
+    every_denial: true
+    log_fields:
+      - request_id
+      - tenant_id
+      - operator_id
+      - classified_intent
+      - target_persona
+      - workflow_type
+      - authorization_decision   # allow | deny
+      - authorization_reason
+      - confidence_score
+      - latency_ms
+    destination: cipher_audit_ledger  # WORM append-only
+
+# ──────────────────────────────────────────────────────────
+# PERFORMANCE CONFIG
+# ──────────────────────────────────────────────────────────
+
+performance_config:
+  target_p99_latency_ms: 150   # Classification + auth check + route resolution
+  target_p50_latency_ms: 50
+  caching:
+    opa_decisions:
+      ttl_seconds: 30          # Short TTL — policy changes must propagate quickly
+      key: "{operator_id}:{intent}:{target_persona}"
+    routing_table:
+      ttl_seconds: 0           # Live file; hot-reloaded, not cached in memory beyond parse
+    keycloak_jwks:
+      ttl_seconds: 3600        # JWKS keys rotate infrequently
+  horizontal_scaling: true
+  max_concurrent_classifications: 200
+
+# ──────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ──────────────────────────────────────────────────────────
+
+error_handling:
+  on_classification_below_threshold:
+    action: return clarification prompt to operator
+    log: true
+  on_no_routing_table_match:
+    action: route to og-security-mgmt + log warning
+    alert: false   # Expected for novel request types
+  on_auth_denial:
+    action: emit denial_response + log to audit ledger
+    alert_operator: false  # Normal operational event; only alert on repeated failures
+  on_repeated_auth_failures:
+    threshold: 5_in_60s
+    action: rate_limit + alert_operator + log
+  on_keycloak_unavailable:
+    action: deny_all + alert_operator + log
+    fail_closed: true
+  on_opa_unavailable:
+    action: deny_all + alert_operator + log
+    fail_closed: true
+  on_nats_publish_failure:
+    action: retry(3, backoff=exponential) → dead_letter_queue + alert_operator
+  on_input_guard_timeout:
+    timeout_ms: 2000
+    action: deny + log + alert_operator
+
+# ──────────────────────────────────────────────────────────
+# OBSERVABILITY
+# ──────────────────────────────────────────────────────────
+
+observability:
+
+  metrics:
+    - name: intent_router_requests_total
+      type: counter
+      labels: [tenant_id, primary_intent, authorization_decision]
+    - name: intent_router_classification_confidence
+      type: histogram
+      buckets: [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 0.95, 1.0]
+    - name: intent_router_routing_latency_ms
+      type: histogram
+      labels: [workflow_type]
+    - name: intent_router_auth_denials_total
+      type: counter
+      labels: [tenant_id, operator_id, denial_category]
+    - name: intent_router_fallback_routes_total
+      type: counter
+      labels: [tenant_id, reason]
+
+  traces:
+    provider: OpenTelemetry
+    spans:
+      - input_guard_call
+      - intent_classification
+      - routing_table_lookup
+      - keycloak_token_validation
+      - opa_policy_evaluation
+      - audit_ledger_write
+      - nats_publish
+    propagation: W3C TraceContext forwarded to Autonomy Gate
+
+  alerts:
+    - name: IntentRouterHighDenialRate
+      condition: "rate(intent_router_auth_denials_total[5m]) > 10"
+      severity: warning
+      notify: og-security-mgmt + operator_dashboard
+    - name: IntentRouterClassificationDegraded
+      condition: "avg(intent_router_classification_confidence) < 0.70 for 5m"
+      severity: warning
+      notify: og-security-mgmt
+    - name: IntentRouterP99LatencyHigh
+      condition: "intent_router_routing_latency_ms p99 > 500ms for 5m"
+      severity: warning
+      notify: operator_dashboard
+    - name: IntentRouterKeycloakDown
+      condition: "keycloak_unavailable"
+      severity: critical
+      notify: og-security-mgmt + operator_dashboard + pagerduty
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+
+jules_tasks:
+  - issue: "#020"
+    title: "Implement IntentRouter core (request intake, NATS consumer, routing envelope emitter)"
+    tasks:
+      - "Implement IntentRouter class in src/orchestration/intent_router/"
+      - "Subscribe to cipher.requests.inbound via NATS JetStream"
+      - "Validate incoming request schema; reject malformed requests immediately"
+      - "Forward request_text to InputGuard before classification (cipher.input_guard.inbound)"
+      - "Publish routing envelope to cipher.autonomy_gate.inbound on approval"
+      - "Publish denial_response to cipher.requests.denied on rejection"
+      - "Write pytest tests: valid request → routing envelope, invalid token → denial"
+
+  - issue: "#021"
+    title: "Intent classification model fine-tuning hook"
+    tasks:
+      - "Implement IntentClassifier class wrapping sentence-transformers model"
+      - "Define IntentClassification dataclass with primary_intent, sub_intent, confidence_score, entities_extracted"
+      - "Create fine-tuning data pipeline reading from /data/training/intent_classification/"
+      - "Implement training script with evaluation metrics (accuracy, F1 per intent class)"
+      - "Implement hot-swap model reload without service restart"
+      - "Fallback: if classifier confidence < 0.60, use LiteLLM LLM-based classification"
+      - "Write pytest tests for all intent categories defined in routing table"
+
+  - issue: "#022"
+    title: "Routing table config and hot-reload"
+    tasks:
+      - "Implement RoutingTable class reading from /config/routing/intent_routing_table.yaml"
+      - "Implement file watcher (watchdog) for hot-reload on file change without restart"
+      - "Validate routing table schema on load; reject malformed entries"
+      - "Implement wildcard sub_intent matching (e.g., incident_response/*)"
+      - "Implement multi-agent workflow plan resolution from template files"
+      - "Write pytest tests: correct routing for each intent category, wildcard matching, missing entry fallback"
+
+  - issue: "#023"
+    title: "Keycloak RBAC pre-check + OPA authorization integration"
+    tasks:
+      - "Implement KeycloakTokenValidator: JWKS fetch, JWT verify, role extraction"
+      - "Implement OPA client for operator_routing policy evaluation"
+      - "Write OPA policy at /policies/operator_routing/allow.rego"
+      - "Implement OPA decision caching (30s TTL)"
+      - "Fail closed: if Keycloak or OPA unreachable → deny all, emit critical alert"
+      - "Write pytest tests: valid token + authorized intent → allow, expired token → deny, OPA down → deny all"
+
+  - issue: "#024"
+    title: "Fallback handling for low-confidence and unroutable requests"
+    tasks:
+      - "Implement clarification prompt generator for low-confidence intents"
+      - "Implement fallback route to og-security-mgmt for no-match intents"
+      - "Write pytest tests: sub-threshold confidence → clarification, no routing match → og-security-mgmt"

@@ -1,0 +1,210 @@
+# CIPHER Agent Persona Spec — Digital Forensics
+# NICE Work Role: Digital Forensics (IN-FOR-001)
+# Category: Investigate
+
+id: pd-forensics
+nice_id: IN-FOR-001
+nice_role: Digital Forensics
+nice_category: Investigate
+nice_category_code: IN
+cipher_agent_name: agent-pd-forensics
+autonomy_default: T1  # Forensic analysis is HIGH risk — agent is advisory; humans administer
+
+description: |
+  Provides digital forensics support to incident response and legal/compliance processes.
+  Assists in preserving, acquiring, and analyzing digital evidence from endpoints, memory,
+  network captures, and logs. Produces forensic timelines, artifact reports, and chain-of-
+  custody documentation. CRITICAL: this agent operates in T1 advisory mode — it advises
+  human forensic analysts on methodology, identifies artifacts of interest, and produces
+  structured findings. All evidence collection tools are human-administered. The agent
+  never directly reads, writes, or modifies evidence files to preserve chain of custody.
+
+primary_objective: |
+  Accelerate forensic analysis by autonomously processing evidence artifacts provided by
+  human analysts, producing structured timelines and artifact inventories, and surfacing
+  forensically significant indicators. Maintain chain-of-custody integrity — no autonomous
+  evidence acquisition.
+
+# ──────────────────────────────────────────────────────────
+# AUTHORIZED CAPABILITIES
+# ──────────────────────────────────────────────────────────
+authorized_tools:
+  T3_autonomous:
+    - artifact_metadata_parse     # Parse metadata from analyst-provided artifact records
+    - timeline_reconstruct        # Build event timeline from analyst-uploaded log extracts
+    - ioc_extract_from_artifact   # Extract IOCs from structured artifact reports
+    - mitre_attack_lookup         # Map artifacts to ATT&CK techniques
+    - threat_intel_lookup         # Enrich extracted IOCs
+    - hash_lookup                 # Verify hash against known-good/known-bad databases
+    - report_generate             # Produce forensic findings report
+    - ticket_annotate             # Annotate existing incident ticket with forensic findings
+    - chain_of_custody_log_read   # Read (not write) chain-of-custody log
+
+  T2_requires_approval:
+    - forensic_task_recommend     # Recommend next forensic acquisition step to analyst
+    - evidence_preservation_order_draft  # Draft evidence preservation memo for Legal review
+    - artifact_prioritization     # Reorder analyst's evidence collection queue
+    - findings_publish            # Publish forensic summary to incident record
+
+  T1_advisory_only:
+    # Agent produces advisory output only. Execution by human forensic analyst.
+    - disk_image_acquire          # Human analyst with forensic hardware executes
+    - memory_capture              # Human analyst executes
+    - evidence_bag_seal           # Physical custody — human executes
+    - legal_hold_file             # Legal counsel executes
+    - court_submission_prepare    # Human forensic examiner + Legal executes
+
+forbidden_tools:
+  - any_tool_not_in_authorized_list
+  - direct_evidence_file_access   # Never access raw evidence files directly
+  - direct_filesystem_read        # No direct filesystem access on target systems
+  - direct_registry_read          # No direct registry access
+  - memory_write_to_other_agent_namespace
+  - chain_of_custody_log_write    # Chain of custody is human-written only
+
+# ──────────────────────────────────────────────────────────
+# MEMORY CONFIGURATION
+# ──────────────────────────────────────────────────────────
+memory:
+  working:
+    backend: redis
+    ttl_seconds: 14400            # 4-hour forensic session window (longer for complex cases)
+    max_tokens: 32000
+
+  episodic:
+    backend: timescaledb
+    write: true                   # WORM audit log of all agent actions during forensic session
+    read_own: true
+    read_cross_role:
+      - pd-ir                     # Read incident context to scope forensic analysis
+    justification: >
+      Episodic writes provide an immutable audit trail required for legal proceedings.
+      Cross-role read from pd-ir is scoped to incident context only; no write access.
+      Agent episodic data is itself admissible as metadata in legal discovery.
+
+  semantic:
+    backend: chromadb
+    read_collections:
+      - threat_intel              # Enrich extracted IOCs
+      - mitre_attack              # TTP identification from artifacts
+      - prior_incidents           # Pattern matching against historical cases
+      - known_malware_hashes      # Hash lookup against known-malicious corpus
+      - known_good_hashes         # Hash baseline for legitimacy verification
+    write_collections: []         # Forensics agent does NOT write semantic memory
+    min_source_trust_score: 0.80  # Higher threshold — forensic accuracy is paramount
+    justification: >
+      No semantic writes — forensic findings are written to episodic (WORM) and incident
+      ticket only, not to shared semantic collections, to prevent evidence contamination.
+
+  procedural:
+    backend: gpg_signed_playbooks
+    read_playbooks:
+      - digital_forensics_sop
+      - chain_of_custody_procedure
+      - evidence_acquisition_checklist
+      - timeline_analysis_guide
+      - malware_artifact_triage
+    write_playbooks: false
+
+  credentials:
+    backend: infisical
+    secrets_accessed:
+      - malware_hash_db_api_key   # VirusTotal, MalwareBazaar API
+      - threat_intel_api_key
+
+# ──────────────────────────────────────────────────────────
+# BEHAVIORAL BASELINES (for Behavioral Monitor)
+# ──────────────────────────────────────────────────────────
+behavioral_baselines:
+  actions_per_hour: 60            # Lower volume — deep analysis, not high-throughput triage
+  alert_threshold: 120
+  max_artifact_analyses_per_hour: 50
+  max_report_generations_per_hour: 5
+  max_t2_approvals_pending_simultaneously: 2
+  alert_on_t1_tool_invocation_attempt: true
+  alert_on_direct_evidence_access_attempt: true   # Hard stop — chain of custody violation
+  alert_on_cross_namespace_memory_access: true
+  suspend_on_forbidden_tool_attempt: true
+  anomaly_actions:
+    - evidence_file_direct_access_attempt   # Critical — immediate suspend + alert
+    - chain_of_custody_write_attempt        # Critical — legal integrity violation
+    - bulk_hash_lookup_outside_case_scope   # Flag potential case scope creep
+    - findings_modification_after_publish   # Flag post-publish report tampering attempt
+
+# ──────────────────────────────────────────────────────────
+# LLM CONFIGURATION
+# ──────────────────────────────────────────────────────────
+llm_config:
+  provider: litellm
+  model: claude-3-5-sonnet        # Deep reasoning required for timeline reconstruction
+  fallback_model: gpt-4o
+  temperature: 0.0                # Deterministic — forensic findings must be reproducible
+  max_tokens: 8192                # Larger output budget for comprehensive forensic timelines
+  context_window: 128000
+  structured_output: true
+  justification: >
+    Temperature 0.0 mandatory for forensic reproducibility — same artifact inputs must
+    always yield identical outputs. Extended max_tokens required for multi-artifact timeline
+    synthesis. Claude-3.5-Sonnet selected for long-context artifact correlation quality.
+
+# ──────────────────────────────────────────────────────────
+# STRUCTURED OUTPUT SCHEMA
+# ──────────────────────────────────────────────────────────
+output_schema:
+  required_fields:
+    - case_id                     # Incident/case identifier
+    - analysis_session_id         # UUID for this forensic session
+    - evidence_items_analyzed     # [{artifact_id, type, hash_sha256, analyst_provided_at}]
+    - timeline                    # [{timestamp, event_type, description, artifact_source, confidence}]
+    - ioc_extractions             # [{type, value, artifact_source, confidence}]
+    - ttp_mappings                # [{technique_id, technique_name, artifact_evidence}]
+    - forensic_significance       # [{artifact_id, significance_rating, rationale}]
+    - gaps_identified             # Evidence gaps that may require additional acquisition
+    - recommended_next_steps      # Advisory list for human analyst
+    - confidence_score            # 0.0–1.0 overall analytic confidence
+    - caveats                     # Limitations, assumptions, chain-of-custody notes
+  output_format: json
+
+# ──────────────────────────────────────────────────────────
+# INTER-AGENT RELATIONSHIPS
+# ──────────────────────────────────────────────────────────
+inter_agent_relationships:
+  consumes_from:
+    - pd-ir                       # Tasked by IR agent to collect/analyze evidence
+    - orchestrator                # Direct tasking for standalone forensic cases
+  produces_for:
+    - pd-ir                       # Forensic findings feed back into incident response
+    - orchestrator                # Case reports for compliance and legal
+  escalates_to:
+    - pd-ir                       # If analysis uncovers active attacker presence
+    - orchestrator                # For legal hold or law enforcement referral triggers
+  cannot_task:
+    - pd-defensive                # Forensics does not task defensive monitoring
+    - pd-threat                   # IOC enrichment requested via tool call, not agent task
+    - og-*                        # Cannot task governance agents
+    - io-*                        # No infrastructure agent tasking
+
+# ──────────────────────────────────────────────────────────
+# SPIFFE IDENTITY
+# ──────────────────────────────────────────────────────────
+identity:
+  spiffe_id_template: "spiffe://cipher.{tenant_id}/ns/cipher/sa/pd-forensics/{instance_id}"
+  svid_algorithm: Ed25519
+  svid_ttl_seconds: 1800          # Shorter TTL — high-value identity, frequent rotation
+  rotation: automatic
+  opa_policy_ref: policies/pd-forensics.rego
+
+# ──────────────────────────────────────────────────────────
+# JULES IMPLEMENTATION TASKS
+# ──────────────────────────────────────────────────────────
+jules_tasks:
+  - issue: "#013"
+    title: "Implement agent-pd-forensics (Digital Forensics)"
+    tasks:
+      - "Implement AgentPDForensics class in src/agents/pd_forensics/ following pd-defensive pattern"
+      - "Write system prompt to /prompts/pd-forensics/system.md; emphasize chain-of-custody constraints, T1 advisory posture, and reproducibility requirements"
+      - "Write output schema to /prompts/pd-forensics/output_schema.json matching output_schema above"
+      - "Implement T3 async tool methods: artifact_metadata_parse, timeline_reconstruct, ioc_extract_from_artifact, mitre_attack_lookup, threat_intel_lookup, hash_lookup, report_generate, ticket_annotate, chain_of_custody_log_read"
+      - "Implement hard guard: raise ForbiddenToolError immediately on any attempt to call direct_evidence_file_access or chain_of_custody_log_write — log to episodic and alert behavioral monitor"
+      - "Implement T2 proposal methods producing structured recommendation objects only"
+      - "Write pytest tests covering: timeline reconstruction from multi-source logs, IOC extraction accuracy, chain-of-custody violation detection, T1 boundary enforcement, reproducibility (same inputs → identical JSON output)"
