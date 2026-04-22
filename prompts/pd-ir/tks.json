@@ -1,0 +1,14 @@
+{
+  "persona_id": "pd-ir",
+  "nice_role_id": "PD-WRL-002",
+  "tasks": [
+    {
+      "id": "T0002",
+      "description": "Analyze network traffic to identify anomalies."
+    },
+    {
+      "id": "T0161",
+      "description": "Coordinate incident response activities."
+    }
+  ]
+}

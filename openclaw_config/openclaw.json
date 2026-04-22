@@ -1,0 +1,27 @@
+{
+  "gateway": {
+    "mode": "local",
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "dangerouslyDisableDeviceAuth": true
+    }
+  },
+  "workspaces": {
+    "pd-ir": {
+      "identity": {
+        "nice_role": "Incident Response",
+        "spiffe_id": "spiffe://cipher.local/ns/cipher/sa/pd-ir/instance-001"
+      },
+      "prompts_path": "/app/prompts/pd-ir",
+      "skills_path": "/root/.openclaw/workspace/skills",
+      "channels": {
+        "alerts": "slack",
+        "coordination": "matrix",
+        "approvals": "signal"
+      },
+      "hooks": {
+        "on_tool_call": "src.integrations.openclaw_hook:CipherOpenClawIntegration.on_tool_call"
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # OpenClaw Gateway
+  openclaw:
+    image: openclaw/gateway:latest
+    ports:
+      - "18789:18789"
+    environment:
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      - INFISICAL_TOKEN=${INFISICAL_TOKEN}
+    volumes:
+      - ./openclaw_config:/root/.openclaw
+      - ./prompts:/app/prompts
+    depends_on:
+      - redis
+      - timescaledb
+      - spire-agent
+
+  # Memory Plane - Episodic & Audit (WORM)
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      - POSTGRES_DB=cipher
+      - POSTGRES_USER=cipher_admin
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+
+  # Memory Plane - Working
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Semantic Memory
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+
+  # Security Plane - SPIFFE/SPIRE
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.8.0
+    volumes:
+      - ./spire/server:/opt/spire/conf/server
+
+  spire-agent:
+    image: ghcr.io/spiffe/spire-agent:1.8.0
+    volumes:
+      - ./spire/agent:/opt/spire/conf/agent
+      - /var/run/spire/agent-socket:/run/spire/sockets
+    depends_on:
+      - spire-server
+
+  # NIST-Sync Worker (Custom Service)
+  nist-sync:
+    build:
+      context: .
+      dockerfile: docker/nist-sync.Dockerfile
+    environment:
+      - NIST_CPRT_URL=https://cprt-beta.nist.gov/api/cprt/export/json
+    volumes:
+      - ./prompts:/app/prompts
+      - ./specs:/app/specs
+      - ./openclaw_config:/root/.openclaw
+
+networks:
+  default:
+    name: cipher-network
