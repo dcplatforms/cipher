@@ -72,6 +72,14 @@ performance:
     opa_decisions: ttl=10s  # Short TTL — policies can change
   horizontal_scaling: true
 
+cavf_criteria:
+  - id: identity_gate
+    description: "The Trust Broker must explicitly reject any incoming request or LangGraph state transition from an agent that does not present a valid, unexpired Ed25519 SVID."
+  - id: autonomy_routing
+    description: "T3 (Autonomous): Validate that requests flagged as T3 correctly bypass the human approval node and proceed directly to execution. T1/T2 (Administered/Copiloted): Validate that requests flagged as T1 or T2 are successfully intercepted, routed to the Human_Approval NATS JetStream queue, and the agent is placed in a suspended WAITING state pending Keycloak authentication."
+  - id: policy_enforcement
+    description: "The Trust Broker must successfully query the OPA engine before authorizing state changes. If an agent attempts an action outside its defined NICE role scope, the Trust Broker must enforce a 403 Forbidden response and gracefully log the denial without crashing the orchestrator."
+
 jules_tasks:
   - issue: "#001"
     title: "Implement Trust Broker"
@@ -81,7 +89,10 @@ jules_tasks:
       - "Implement OPA client for policy evaluation"
       - "Implement audit ledger writer"
       - "Fail-closed behavior: if SPIRE or OPA unreachable, deny all"
-      - "Write comprehensive pytest tests including adversarial scenarios"
+      - "Enforce CAVF Identity Gate: explicitly reject invalid/unexpired Ed25519 SVIDs"
+      - "Enforce CAVF Autonomy Routing: intercept T1/T2 for Human_Approval NATS queue, allow T3 execution directly"
+      - "Enforce CAVF Policy Enforcement: query OPA, return 403 Forbidden for out-of-scope actions without crashing"
+      - "Write comprehensive pytest tests including adversarial scenarios (CAVF validation)"
       - "Test: expired SVID → deny"
       - "Test: wrong trust domain → deny"
       - "Test: OPA down → deny all"
