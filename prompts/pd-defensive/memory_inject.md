@@ -1,0 +1,17 @@
+<MEMORY_CONTEXT>
+<WORKING_MEMORY>
+{{ working_memory }}
+</WORKING_MEMORY>
+
+<EPISODIC_MEMORY>
+{{ episodic_memory }}
+</EPISODIC_MEMORY>
+
+<SEMANTIC_MEMORY>
+{{ semantic_memory }}
+</SEMANTIC_MEMORY>
+
+<PROCEDURAL_MEMORY>
+{{ procedural_memory }}
+</PROCEDURAL_MEMORY>
+</MEMORY_CONTEXT>

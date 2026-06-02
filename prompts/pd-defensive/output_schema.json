@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "alert_id": {
+      "type": "string",
+      "description": "The unique identifier of the alert being processed."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["P1", "P2", "P3", "P4"],
+      "description": "Assigned severity level."
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["true_positive", "false_positive", "needs_investigation"],
+      "description": "Verdict on the nature of the alert."
+    },
+    "confidence_score": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence in the classification and proposed actions."
+    },
+    "enrichment_data": {
+      "type": "object",
+      "description": "Key pieces of context gathered during triage (e.g., threat intel findings, asset info)."
+    },
+    "proposed_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["T1", "T2", "T3"]
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": ["action", "tier", "rationale"]
+      },
+      "description": "List of actions the agent proposes to take or recommends."
+    },
+    "escalate_to_ir": {
+      "type": "boolean",
+      "description": "Whether this alert should be escalated to the Incident Response agent."
+    },
+    "escalation_reason": {
+      "type": "string",
+      "description": "Reason for escalation, if escalate_to_ir is true."
+    }
+  },
+  "required": [
+    "alert_id",
+    "severity",
+    "classification",
+    "confidence_score",
+    "enrichment_data",
+    "proposed_actions",
+    "escalate_to_ir"
+  ],
+  "additionalProperties": false
+}
